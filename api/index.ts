@@ -280,6 +280,58 @@ function classifyUrlHeuristically(urlStr: string, cms: string): string {
   }
 }
 
+// Helper to identify if a URL is a static asset or a system/junk route that shouldn't be included
+function isAssetOrJunkUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    const pathname = url.pathname.toLowerCase();
+    const search = url.search.toLowerCase();
+
+    // 1. Check extensions to ignore
+    const ignoredExtensions = [
+      ".css", ".js", ".woff2", ".woff", ".ttf", ".eot", ".otf", 
+      ".json", ".map", ".ico", ".svg", ".png", ".jpg", ".jpeg", 
+      ".gif", ".webp", ".bmp", ".tiff", ".less", ".scss", ".sass",
+      ".xml", ".rss"
+    ];
+    if (ignoredExtensions.some(ext => pathname.endsWith(ext))) {
+      return true;
+    }
+
+    // 2. Check WordPress/CMS specific directories and files that are purely assets or system routes
+    const ignoredPatterns = [
+      "/wp-content/themes/",
+      "/wp-content/plugins/",
+      "/wp-content/cache/",
+      "/wp-includes/",
+      "/wp-json",
+      "xmlrpc.php",
+      "wp-login.php",
+      "wp-register.php",
+      "oembed",
+      "wp-embed",
+      "/feed",
+      "/comments/feed"
+    ];
+    if (ignoredPatterns.some(pattern => pathname.includes(pattern) || urlStr.toLowerCase().includes(pattern))) {
+      // Allow PDFs or other documents from uploads folder
+      if (pathname.includes("/wp-content/uploads/") && (pathname.endsWith(".pdf") || pathname.endsWith(".docx") || pathname.endsWith(".xlsx"))) {
+        return false;
+      }
+      return true;
+    }
+
+    // 3. Junk search parameters
+    if (search.includes("replytocom") || search.includes("rsd") || search.includes("wp-json") || search.includes("share=")) {
+      return true;
+    }
+
+    return false;
+  } catch (e) {
+    return true; // If invalid URL, treat as junk
+  }
+}
+
 // Clean and validate target URL
 function cleanUrl(input: string): string {
   let cleaned = input.trim();
@@ -377,6 +429,10 @@ app.get("/api/scan", async (req, res) => {
         parsed.hash = "";
         
         const cleanStr = parsed.href.replace(/\/+$/, "");
+        
+        if (isAssetOrJunkUrl(cleanStr)) {
+          return;
+        }
         
         if (parsed.hostname === targetHost || parsed.hostname.endsWith("." + targetHost) || targetHost.endsWith("." + parsed.hostname)) {
           if (!discoveredUrlsMap.has(cleanStr)) {
@@ -526,11 +582,13 @@ app.get("/api/scan", async (req, res) => {
               try {
                 const resolvedHref = new URL(href, currentItem.url).href;
                 if (new URL(resolvedHref).hostname === targetHost) {
-                  addDiscoveredUrl(resolvedHref, "Crawler");
                   const cleanHref = resolvedHref.split("#")[0].replace(/\/+$/, "");
-                  if (!visitedCrawl.has(cleanHref) && currentItem.depth < 1) {
-                    visitedCrawl.add(cleanHref);
-                    crawlQueue.push({ url: cleanHref, depth: currentItem.depth + 1 });
+                  if (!isAssetOrJunkUrl(cleanHref)) {
+                    addDiscoveredUrl(resolvedHref, "Crawler");
+                    if (!visitedCrawl.has(cleanHref) && currentItem.depth < 1) {
+                      visitedCrawl.add(cleanHref);
+                      crawlQueue.push({ url: cleanHref, depth: currentItem.depth + 1 });
+                    }
                   }
                 }
               } catch (err) {}
@@ -790,6 +848,10 @@ app.get("/api/scan-stream", async (req, res) => {
         
         const cleanStr = parsed.href.replace(/\/+$/, "");
         
+        if (isAssetOrJunkUrl(cleanStr)) {
+          return;
+        }
+        
         // Ensure same domain
         if (parsed.hostname === targetHost || parsed.hostname.endsWith("." + targetHost) || targetHost.endsWith("." + parsed.hostname)) {
           if (!discoveredUrlsMap.has(cleanStr)) {
@@ -976,14 +1038,16 @@ app.get("/api/scan-stream", async (req, res) => {
                 
                 // Keep only same domain
                 if (parsedResolved.hostname === targetHost) {
-                  // Add to discovered map
-                  addDiscoveredUrl(resolvedHref, "Crawler");
-                  
-                  // Add to crawler queue if not visited and depth is small
                   const cleanHref = resolvedHref.split("#")[0].replace(/\/+$/, "");
-                  if (!visitedCrawl.has(cleanHref) && currentItem.depth < 2) {
-                    visitedCrawl.add(cleanHref);
-                    crawlQueue.push({ url: cleanHref, depth: currentItem.depth + 1 });
+                  if (!isAssetOrJunkUrl(cleanHref)) {
+                    // Add to discovered map
+                    addDiscoveredUrl(resolvedHref, "Crawler");
+                    
+                    // Add to crawler queue if not visited and depth is small
+                    if (!visitedCrawl.has(cleanHref) && currentItem.depth < 2) {
+                      visitedCrawl.add(cleanHref);
+                      crawlQueue.push({ url: cleanHref, depth: currentItem.depth + 1 });
+                    }
                   }
                 }
               } catch (err) {
