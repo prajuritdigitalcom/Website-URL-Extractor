@@ -277,6 +277,334 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Non-streaming JSON Scan Endpoint for Vercel/Serverless fallbacks
+app.get("/api/scan", async (req, res) => {
+  const rawUrl = req.query.url as string;
+  if (!rawUrl) {
+    return res.status(400).json({ error: "URL wajib diisi" });
+  }
+
+  let targetUrl = "";
+  try {
+    targetUrl = cleanUrl(rawUrl);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message || "Format URL tidak valid" });
+  }
+
+  const targetOrigin = new URL(targetUrl).origin;
+  const targetHost = new URL(targetUrl).hostname;
+
+  console.log(`[VERCEL_SCAN_ERROR_TRACK] Starting non-streaming /api/scan for: ${targetUrl}`);
+
+  try {
+    const startTime = Date.now();
+    
+    // 1. Fetch homepage to validate and detect CMS
+    let homeHtml = "";
+    let homeHeaders: Record<string, string> = {};
+    let resolvedUrl = targetUrl;
+
+    const homeRes = await resilientFetch(targetUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      }
+    });
+
+    resolvedUrl = homeRes.url;
+    homeHtml = await homeRes.text();
+    homeRes.headers.forEach((val, key) => {
+      homeHeaders[key.toLowerCase()] = val;
+    });
+
+    if (!homeRes.ok) {
+      console.error(`[VERCEL_SCAN_ERROR_TRACK] Non-streaming scan primary failed. Status: ${homeRes.status}`);
+    }
+
+    // CMS Detection
+    let cms = "Custom CMS";
+    const lowercaseHtml = homeHtml.toLowerCase();
+    
+    if (lowercaseHtml.includes("wp-content") || lowercaseHtml.includes("wp-includes") || homeHeaders["x-powered-by"]?.toLowerCase().includes("wp")) {
+      cms = "WordPress";
+    } else if (lowercaseHtml.includes("blogger.com") || lowercaseHtml.includes("blogspot.com") || lowercaseHtml.includes("blogger-button")) {
+      cms = "Blogger";
+    } else if (lowercaseHtml.includes("cdn.shopify.com") || lowercaseHtml.includes("shopify-payment-button")) {
+      cms = "Shopify";
+    } else if (lowercaseHtml.includes("joomla")) {
+      cms = "Joomla";
+    } else if (lowercaseHtml.includes("wix.com") || lowercaseHtml.includes("wix-code")) {
+      cms = "Wix";
+    } else if (lowercaseHtml.includes("ghost-sdk") || lowercaseHtml.includes("ghost-portal")) {
+      cms = "Ghost";
+    } else if (lowercaseHtml.includes("data-wf-site") || lowercaseHtml.includes('content="webflow')) {
+      cms = "Webflow";
+    } else if (lowercaseHtml.includes("csrf-token") && (lowercaseHtml.includes("laravel") || homeHeaders["set-cookie"]?.toLowerCase().includes("laravel_session"))) {
+      cms = "Laravel";
+    }
+
+    const discoveredUrlsMap = new Map<string, DiscoveredURL>();
+
+    // Helper to add URLs safely
+    const addDiscoveredUrl = (urlStr: string, source: string) => {
+      try {
+        const parsed = new URL(urlStr);
+        const trackingParams = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"];
+        trackingParams.forEach(p => parsed.searchParams.delete(p));
+        parsed.hash = "";
+        
+        const cleanStr = parsed.href.replace(/\/+$/, "");
+        
+        if (parsed.hostname === targetHost || parsed.hostname.endsWith("." + targetHost) || targetHost.endsWith("." + parsed.hostname)) {
+          if (!discoveredUrlsMap.has(cleanStr)) {
+            const type = classifyUrlHeuristically(cleanStr, cms);
+            discoveredUrlsMap.set(cleanStr, {
+              url: cleanStr,
+              type,
+              source,
+              status: "Found"
+            });
+          }
+        }
+      } catch (e) {
+        // Invalid URL
+      }
+    };
+
+    addDiscoveredUrl(resolvedUrl, "Crawler");
+
+    // robots.txt
+    const robotsUrl = `${targetOrigin}/robots.txt`;
+    let robotsTxt = "";
+    let sitemapsFromRobots: string[] = [];
+
+    try {
+      const robotsRes = await resilientFetch(robotsUrl, {
+        headers: { "User-Agent": "Mozilla/5.0" }
+      });
+      if (robotsRes.ok) {
+        robotsTxt = await robotsRes.text();
+        const lines = robotsTxt.split("\n");
+        for (const line of lines) {
+          if (line.toLowerCase().startsWith("sitemap:")) {
+            const sUrl = line.substring(8).trim();
+            if (sUrl) sitemapsFromRobots.push(sUrl);
+          }
+        }
+      }
+    } catch (e) {
+      // Ignored
+    }
+
+    // Sitemaps
+    const sitemapsToTry = new Set<string>(sitemapsFromRobots);
+    sitemapsToTry.add(`${targetOrigin}/sitemap.xml`);
+    sitemapsToTry.add(`${targetOrigin}/sitemap_index.xml`);
+
+    if (cms === "WordPress") {
+      sitemapsToTry.add(`${targetOrigin}/wp-sitemap.xml`);
+      sitemapsToTry.add(`${targetOrigin}/post-sitemap.xml`);
+      sitemapsToTry.add(`${targetOrigin}/page-sitemap.xml`);
+    }
+
+    const scannedSitemaps = new Set<string>();
+    const sitemapQueue = Array.from(sitemapsToTry);
+    let sitemapsFoundCount = 0;
+
+    while (sitemapQueue.length > 0 && scannedSitemaps.size < 8) {
+      const currentSitemapUrl = sitemapQueue.shift()!;
+      if (scannedSitemaps.has(currentSitemapUrl)) continue;
+      scannedSitemaps.add(currentSitemapUrl);
+
+      try {
+        const sitemapRes = await resilientFetch(currentSitemapUrl, {
+          headers: { "User-Agent": "Mozilla/5.0" }
+        });
+        if (sitemapRes.ok) {
+          sitemapsFoundCount++;
+          const sitemapXml = await sitemapRes.text();
+          const locRegex = /<loc>(https?:\/\/[^\s<]+)<\/loc>/gi;
+          let match;
+          while ((match = locRegex.exec(sitemapXml)) !== null) {
+            const discoveredUrl = match[1];
+            if (discoveredUrl.toLowerCase().includes(".xml") || discoveredUrl.toLowerCase().includes(".xml.gz")) {
+              if (!scannedSitemaps.has(discoveredUrl)) {
+                sitemapQueue.push(discoveredUrl);
+              }
+            } else {
+              addDiscoveredUrl(discoveredUrl, "Sitemap");
+            }
+          }
+        }
+      } catch (e) {
+        // Ignored
+      }
+    }
+
+    // Blogger Atom feeds
+    if (cms === "Blogger") {
+      const bloggerFeeds = [
+        `${targetOrigin}/feeds/posts/default?max-results=300`,
+      ];
+      for (const feedUrl of bloggerFeeds) {
+        try {
+          const feedRes = await resilientFetch(feedUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+          if (feedRes.ok) {
+            const feedXml = await feedRes.text();
+            const linkRegex = /<link[^>]+rel=['"]alternate['"][^>]+href=['"](https?:\/\/[^'"]+)['"]/gi;
+            let match;
+            while ((match = linkRegex.exec(feedXml)) !== null) {
+              addDiscoveredUrl(match[1], "Feed");
+            }
+          }
+        } catch (e) {
+          // Ignored
+        }
+      }
+    }
+
+    // Crawler
+    if (discoveredUrlsMap.size < 15) {
+      const crawlQueue: { url: string; depth: number }[] = [{ url: resolvedUrl, depth: 0 }];
+      const visitedCrawl = new Set<string>([resolvedUrl]);
+      
+      while (crawlQueue.length > 0 && visitedCrawl.size < 40 && discoveredUrlsMap.size < 100) {
+        const currentItem = crawlQueue.shift()!;
+        if (currentItem.depth > 1) continue;
+
+        try {
+          const pageRes = await resilientFetch(currentItem.url, {
+            headers: { "User-Agent": "Mozilla/5.0" }
+          });
+          if (pageRes.ok) {
+            const pageHtml = await pageRes.text();
+            const hrefRegex = /href=["']([^"']+)["']/gi;
+            let match;
+            while ((match = hrefRegex.exec(pageHtml)) !== null) {
+              let href = match[1].trim();
+              if (!href || href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+                continue;
+              }
+              try {
+                const resolvedHref = new URL(href, currentItem.url).href;
+                if (new URL(resolvedHref).hostname === targetHost) {
+                  addDiscoveredUrl(resolvedHref, "Crawler");
+                  const cleanHref = resolvedHref.split("#")[0].replace(/\/+$/, "");
+                  if (!visitedCrawl.has(cleanHref) && currentItem.depth < 1) {
+                    visitedCrawl.add(cleanHref);
+                    crawlQueue.push({ url: cleanHref, depth: currentItem.depth + 1 });
+                  }
+                }
+              } catch (err) {}
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    const discoveredList = Array.from(discoveredUrlsMap.values());
+    const gemini = getGeminiClient();
+
+    if (gemini && discoveredList.length > 0) {
+      try {
+        const sampleUrls = discoveredList.slice(0, 30).map(d => d.url);
+        const prompt = `
+Anda adalah Website URL Pattern Analyzer cerdas untuk SEO.
+Tugas Anda adalah menganalisis daftar URL berikut dari domain "${targetHost}" dengan CMS "${cms}".
+Klasifikasikan pola URL ini ke dalam tipe berikut:
+"Article", "Page", "Category", "Tag", "Product", "Image", "PDF", "Video", "Other"
+
+Daftar URL:
+${sampleUrls.join("\n")}
+
+Berikan output berupa JSON yang valid dengan struktur berikut:
+{
+  "patterns": [
+    {
+      "substring": "string untuk dicocokkan (misalnya /category/ atau /p/ atau .html)",
+      "type": "Article | Page | Category | Tag | Product | Image | PDF | Video | Other",
+      "explanation": "Penjelasan singkat dalam Bahasa Indonesia"
+    }
+  ]
+}
+Pastikan tidak ada markdown pembungkus di luar JSON.
+`;
+        const response = await gemini.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+        });
+        const textResponse = response.text;
+        if (textResponse) {
+          const parsed = JSON.parse(textResponse.trim());
+          if (parsed.patterns && Array.isArray(parsed.patterns)) {
+            for (const dItem of discoveredList) {
+              for (const rule of parsed.patterns) {
+                if (dItem.url.toLowerCase().includes(rule.substring.toLowerCase())) {
+                  dItem.type = rule.type;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (geminiErr) {
+        console.warn("Gemini API failed in non-streaming scan:", geminiErr);
+      }
+    }
+
+    // Build stats
+    const stats: ScanStats = {
+      total: discoveredList.length,
+      article: 0,
+      page: 0,
+      category: 0,
+      tag: 0,
+      product: 0,
+      file: 0,
+      image: 0,
+      pdf: 0,
+      video: 0
+    };
+
+    discoveredList.forEach(item => {
+      const typeLower = item.type.toLowerCase();
+      if (typeLower === "article") stats.article++;
+      else if (typeLower === "page") stats.page++;
+      else if (typeLower === "category") stats.category++;
+      else if (typeLower === "tag") stats.tag++;
+      else if (typeLower === "product") stats.product++;
+      else if (typeLower === "image") { stats.image++; stats.file++; }
+      else if (typeLower === "pdf") { stats.pdf++; stats.file++; }
+      else if (typeLower === "video") { stats.video++; stats.file++; }
+      else stats.file++;
+    });
+
+    const scanDurationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    return res.json({
+      success: true,
+      results: discoveredList,
+      stats,
+      summary: {
+        website: targetUrl,
+        cms,
+        urlCount: discoveredList.length,
+        duration: `${scanDurationSec}s`,
+        sitemapsFound: sitemapsFoundCount,
+        robotsTxtExists: robotsTxt.length > 0,
+        scanDate: new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " WIB",
+      }
+    });
+
+  } catch (error: any) {
+    console.error("[VERCEL_SCAN_ERROR_TRACK] Non-streaming scanning endpoint Error:", error);
+    return res.status(500).json({
+      error: error.message || "Terjadi kesalahan internal saat pemindaian"
+    });
+  }
+});
+
 // SSE Streaming Scan Endpoint
 app.get("/api/scan-stream", async (req, res) => {
   res.writeHead(200, {
@@ -760,4 +1088,8 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+if (!process.env.VERCEL) {
+  bootstrap();
+}
+
+export default app;

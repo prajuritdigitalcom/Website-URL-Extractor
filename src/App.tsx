@@ -142,11 +142,65 @@ export default function App() {
     };
 
     ev.onerror = () => {
-      setErrorMsg("Gagal melakukan pemindaian. Pastikan website target aktif dan dapat diakses.");
-      showToast("Pemindaian terputus atau terjadi kesalahan koneksi.", "error");
-      setStatusLogs(prev => [...prev, "[ERROR] Terjadi kegagalan koneksi atau timeout."]);
-      handleCancelScan();
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      
+      console.log("Koneksi streaming terputus atau gagal, beralih ke mode kompatibilitas...");
+      runFallbackScan(finalUrl);
     };
+  };
+
+  // Resilient fallback scan via standard non-streaming API
+  const runFallbackScan = async (urlToScan: string) => {
+    setScanStatus("Menjalankan pemindaian alternatif...");
+    setProgress(30);
+    setStatusLogs(prev => [
+      ...prev,
+      "[INFO] Koneksi real-time dibatasi atau tidak didukung di lingkungan ini.",
+      "[INFO] Mengaktifkan pemindaian dalam mode kompatibilitas penuh...",
+      "Menganalisis sitemap dan struktur website..."
+    ]);
+
+    try {
+      const response = await fetch(`/api/scan?url=${encodeURIComponent(urlToScan)}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDiscoveredList(data.results || []);
+        setStats(data.stats || null);
+        setSummary(data.summary || null);
+        setIsScanning(false);
+        setProgress(100);
+        showToast("Pemindaian selesai via mode kompatibilitas!", "success");
+        setStatusLogs(prev => [
+          ...prev,
+          `Berhasil menganalisis platform: ${data.summary?.cms || "Kustom"}`,
+          `Ditemukan total: ${data.results?.length || 0} URL`,
+          "Proses ekstraksi selesai sepenuhnya."
+        ]);
+      } else {
+        throw new Error(data.error || "Gagal melakukan ekstraksi");
+      }
+    } catch (err: any) {
+      console.error("Fallback scan failed:", err);
+      setErrorMsg(err.message || "Gagal melakukan pemindaian. Pastikan website target aktif dan dapat diakses.");
+      showToast("Pemindaian gagal pada mode kompatibilitas.", "error");
+      setStatusLogs(prev => [
+        ...prev,
+        `[ERROR] Pemindaian gagal: ${err.message || "Koneksi ditolak"}`
+      ]);
+      setIsScanning(false);
+      setProgress(0);
+      setScanStatus("");
+    }
   };
 
   // Cancel current scan
