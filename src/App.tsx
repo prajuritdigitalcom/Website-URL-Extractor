@@ -32,6 +32,8 @@ export default function App() {
 
   // App States
   const [urlInput, setUrlInput] = useState("");
+  const [inputMode, setInputMode] = useState<"auto" | "manual">("auto");
+  const [pastedSitemapText, setPastedSitemapText] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState("");
   const [progress, setProgress] = useState(0);
@@ -222,6 +224,284 @@ export default function App() {
     } else if (urlInput) {
       handleStartScan(urlInput);
     }
+  };
+
+  // Heuristics for classifying URL types (Front-end version)
+  const classifyUrlHeuristically = (urlStr: string, cms: string = "WordPress"): string => {
+    try {
+      const url = new URL(urlStr);
+      const pathname = url.pathname.toLowerCase();
+
+      // Static assets & files
+      if (pathname.match(/\.(jpg|jpeg|png|webp|gif|svg|bmp|ico)$/)) return "Image";
+      if (pathname.match(/\.pdf$/)) return "PDF";
+      if (pathname.match(/\.(mp4|webm|avi|mkv|mov|flv|mpg|mpeg)$/)) return "Video";
+      if (pathname.match(/\.(zip|rar|gz|tar|7z|xml|json|txt|docx|xlsx|pptx)$/)) return "Other";
+
+      // WordPress rules
+      if (cms === "WordPress") {
+        if (pathname.includes("/category/") || pathname.includes("/seksi/") || pathname.includes("/kolom/")) return "Category";
+        if (pathname.includes("/tag/") || pathname.includes("/label/") || pathname.includes("/topik/")) return "Tag";
+        if (pathname.includes("/author/")) return "Page";
+        if (pathname.includes("/product/") || pathname.includes("/shop/") || pathname.includes("/barang/")) return "Product";
+      }
+
+      // Blogger / Blogspot rules
+      if (cms === "Blogger") {
+        if (pathname.includes("/search/label/")) return "Tag";
+        if (pathname.startsWith("/p/")) return "Page";
+        if (/\/\d{4}\/\d{2}\/[^/]+\.html$/.test(pathname)) return "Article";
+      }
+
+      // Shopify rules
+      if (cms === "Shopify") {
+        if (pathname.includes("/products/")) return "Product";
+        if (pathname.includes("/collections/")) return "Category";
+        if (pathname.includes("/pages/")) return "Page";
+        if (pathname.includes("/blogs/")) return "Article";
+      }
+
+      // Squarespace & others
+      if (pathname.includes("/blog/") || pathname.includes("/artikel/") || pathname.includes("/news/") || pathname.includes("/berita/")) {
+        return "Article";
+      }
+      if (pathname.includes("/product/") || pathname.includes("/produk/") || pathname.includes("/item/") || pathname.includes("/shop/")) {
+        return "Product";
+      }
+      if (pathname.includes("/category/") || pathname.includes("/kategori/")) {
+        return "Category";
+      }
+      if (pathname.includes("/tag/") || pathname.includes("/tags/") || pathname.includes("/label/")) {
+        return "Tag";
+      }
+
+      // Default heuristics
+      if (pathname === "" || pathname === "/") return "Page";
+      if (/\/\d{4}\//.test(pathname) || pathname.split("/").length > 3) {
+        return "Article";
+      }
+
+      return "Page";
+    } catch (e) {
+      return "Other";
+    }
+  };
+
+  // Helper to identify if a URL is a static asset or system/junk route to filter out
+  const isAssetOrJunkUrl = (urlStr: string): boolean => {
+    try {
+      const url = new URL(urlStr);
+      const pathname = url.pathname.toLowerCase();
+
+      // Check extensions to ignore
+      const ignoredExtensions = [
+        ".css", ".js", ".woff2", ".woff", ".ttf", ".eot", ".otf", 
+        ".json", ".map", ".ico", ".svg", ".png", ".jpg", ".jpeg", 
+        ".gif", ".webp", ".bmp", ".tiff", ".less", ".scss", ".sass",
+        ".xml", ".rss"
+      ];
+      if (ignoredExtensions.some(ext => pathname.endsWith(ext))) {
+        return true;
+      }
+
+      const ignoredPatterns = [
+        "/wp-content/themes/",
+        "/wp-content/plugins/",
+        "/wp-content/cache/",
+        "/wp-includes/",
+        "/wp-json",
+        "xmlrpc.php",
+        "wp-login.php",
+        "wp-register.php",
+        "oembed",
+        "wp-embed",
+        "/feed",
+        "/comments/feed"
+      ];
+      if (ignoredPatterns.some(pattern => pathname.includes(pattern) || urlStr.toLowerCase().includes(pattern))) {
+        if (pathname.includes("/wp-content/uploads/") && (pathname.endsWith(".pdf") || pathname.endsWith(".docx") || pathname.endsWith(".xlsx"))) {
+          return false;
+        }
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      return true;
+    }
+  };
+
+  // Handle Manual Sitemap Extraction
+  const handleManualExtract = () => {
+    if (!pastedSitemapText.trim()) {
+      showToast("Harap masukkan atau paste teks sitemap terlebih dahulu", "error");
+      return;
+    }
+
+    // Reset previous states
+    setIsScanning(true);
+    setScanStatus("Mengekstrak URL dari teks sitemap...");
+    setProgress(20);
+    setDiscoveredList([]);
+    setStats(null);
+    setSummary(null);
+    setErrorMsg(null);
+    setStatusLogs(["Memulai ekstraksi dari teks sitemap yang di-paste..."]);
+
+    setTimeout(() => {
+      try {
+        // Regex to match URLs starting with http:// or https://
+        // Exclude common chars that terminate a URL in plain text, XML or tab-separated text
+        const urlRegex = /https?:\/\/[^\s'"<>\t\r\n]+/gi;
+        const matches = pastedSitemapText.match(urlRegex) || [];
+        
+        setStatusLogs(prev => [...prev, `Ditemukan ${matches.length} baris string URL mentah.`, "Melakukan pembersihan dan penyaringan junk..."]);
+        setProgress(55);
+
+        // Clean up trailing punctuation
+        const cleaned = matches.map(url => {
+          let u = url;
+          while (u && /[.,;:!?)\]}$]$/.test(u)) {
+            u = u.slice(0, -1);
+          }
+          return u;
+        });
+
+        // Filter out duplicates and invalid URLs, and filter out assets or junk routes
+        const validUrls: string[] = Array.from(new Set<string>(cleaned)).filter((url: string) => {
+          try {
+            new URL(url);
+            return !isAssetOrJunkUrl(url);
+          } catch {
+            return false;
+          }
+        });
+
+        if (validUrls.length === 0) {
+          throw new Error("Tidak ditemukan URL valid dalam teks sitemap yang Anda masukkan.");
+        }
+
+        setStatusLogs(prev => [...prev, `Berhasil mengekstrak ${validUrls.length} URL valid setelah penyaringan.`]);
+        setProgress(85);
+
+        // Analyze domain
+        const hostnames: string[] = validUrls.map((u: string) => {
+          try {
+            return new URL(u).hostname;
+          } catch {
+            return "";
+          }
+        }).filter(Boolean);
+
+        // Find the most frequent hostname
+        const frequency: Record<string, number> = {};
+        let mostFrequentHost = "extracted-sitemap.com";
+        let maxFreq = 0;
+        hostnames.forEach(h => {
+          frequency[h] = (frequency[h] || 0) + 1;
+          if (frequency[h] > maxFreq) {
+            maxFreq = frequency[h];
+            mostFrequentHost = h;
+          }
+        });
+
+        // Detect CMS based on URL patterns (WordPress, Blogger, Shopify, etc.)
+        let cms = "WordPress"; // Default
+        const textLower = pastedSitemapText.toLowerCase();
+        if (textLower.includes("wp-content") || textLower.includes("wp-includes") || validUrls.some((u: string) => u.includes("wp-content") || u.includes("wp-includes"))) {
+          cms = "WordPress";
+        } else if (textLower.includes("blogger") || textLower.includes("blogspot") || validUrls.some((u: string) => u.includes(".html") && /\/\d{4}\/\d{2}\//.test(u))) {
+          cms = "Blogger";
+        } else if (textLower.includes("shopify") || validUrls.some((u: string) => u.includes("/products/") || u.includes("/collections/"))) {
+          cms = "Shopify";
+        }
+
+        // Create DiscoveredURL items
+        const results: DiscoveredURL[] = validUrls.map((url: string) => {
+          const type = classifyUrlHeuristically(url, cms);
+          return {
+            url,
+            type,
+            source: "Sitemap",
+            status: "Found"
+          };
+        });
+
+        // Calculate stats
+        const counts = {
+          total: results.length,
+          article: 0,
+          page: 0,
+          category: 0,
+          tag: 0,
+          product: 0,
+          file: 0,
+          image: 0,
+          pdf: 0,
+          video: 0,
+          other: 0,
+        };
+
+        results.forEach(item => {
+          const t = item.type.toLowerCase();
+          if (t === "article") counts.article++;
+          else if (t === "page") counts.page++;
+          else if (t === "category") counts.category++;
+          else if (t === "tag") counts.tag++;
+          else if (t === "product") counts.product++;
+          else if (t === "image") counts.image++;
+          else if (t === "pdf") counts.pdf++;
+          else if (t === "video") counts.video++;
+          else counts.other++;
+        });
+
+        const statsObj: ScanStats = {
+          total: results.length,
+          article: counts.article,
+          page: counts.page,
+          category: counts.category,
+          tag: counts.tag,
+          product: counts.product,
+          file: counts.pdf + counts.other,
+          image: counts.image,
+          pdf: counts.pdf,
+          video: counts.video,
+        };
+
+        const summaryObj: ScanSummary = {
+          website: `https://${mostFrequentHost}`,
+          cms,
+          urlCount: results.length,
+          duration: "Instant",
+          sitemapsFound: 1,
+          robotsTxtExists: false,
+          scanDate: new Date().toLocaleString("id-ID", { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          }) + " WIB"
+        };
+
+        // Update states
+        setDiscoveredList(results);
+        setStats(statsObj);
+        setSummary(summaryObj);
+        setIsScanning(false);
+        setProgress(100);
+        showToast(`Berhasil mengekstrak ${results.length} URL dari sitemap!`, "success");
+        setStatusLogs(prev => [...prev, "Proses ekstraksi teks sitemap selesai sepenuhnya."]);
+        setCurrentPage(1);
+
+      } catch (err: any) {
+        setIsScanning(false);
+        setProgress(0);
+        setErrorMsg(err.message || "Gagal mengekstrak URL dari teks sitemap.");
+        showToast("Proses ekstraksi gagal", "error");
+        setStatusLogs(prev => [...prev, `[ERROR] Ekstraksi gagal: ${err.message}`]);
+      }
+    }, 800);
   };
 
   // Clean URLs list based on active filters
@@ -524,55 +804,132 @@ export default function App() {
 
               {/* Input Workspace */}
               <section className="max-w-3xl mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/50 space-y-6" id="input-section">
-                <div className="space-y-2">
-                  <label htmlFor="target-url" className="text-sm font-semibold text-gray-700 block">
-                    Masukkan URL Website Target
-                  </label>
-                  <div className="relative flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-grow">
-                      <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                        <Globe className="w-5 h-5 text-gray-400" />
+                
+                {/* Tabs Switcher */}
+                <div className="flex border-b border-gray-100 pb-3 gap-6">
+                  <button
+                    onClick={() => {
+                      if (!isScanning) setInputMode("auto");
+                    }}
+                    disabled={isScanning}
+                    className={`pb-2 text-sm font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                      inputMode === "auto" 
+                        ? "border-[#fe4c6f] text-gray-900" 
+                        : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
+                  >
+                    <Globe className="w-4 h-4" />
+                    Scan Otomatis (Web URL)
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!isScanning) setInputMode("manual");
+                    }}
+                    disabled={isScanning}
+                    className={`pb-2 text-sm font-bold border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                      inputMode === "manual" 
+                        ? "border-[#fe4c6f] text-gray-900" 
+                        : "border-transparent text-gray-400 hover:text-gray-600"
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    Paste Teks Sitemap (Manual)
+                  </button>
+                </div>
+
+                {inputMode === "auto" ? (
+                  <div className="space-y-2">
+                    <label htmlFor="target-url" className="text-sm font-semibold text-gray-700 block">
+                      Masukkan URL Website Target
+                    </label>
+                    <div className="relative flex flex-col sm:flex-row gap-3">
+                      <div className="relative flex-grow">
+                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                          <Globe className="w-5 h-5 text-gray-400" />
+                        </div>
+                        <input
+                          id="target-url"
+                          type="url"
+                          placeholder="Contoh: https://domainanda.com"
+                          value={urlInput}
+                          onChange={(e) => setUrlInput(e.target.value)}
+                          disabled={isScanning}
+                          className="w-full pl-12 pr-4 py-4 rounded-2xl border border-gray-200 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#fe4c6f]/20 focus:border-[#fe4c6f] text-base transition-all disabled:bg-gray-50"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !isScanning) {
+                              handleStartScan();
+                            }
+                          }}
+                        />
                       </div>
-                      <input
-                        id="target-url"
-                        type="url"
-                        placeholder="Contoh: https://domainanda.com"
-                        value={urlInput}
-                        onChange={(e) => setUrlInput(e.target.value)}
+                      
+                      {!isScanning ? (
+                        <button
+                          onClick={() => handleStartScan()}
+                          className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                          id="btn-scan"
+                        >
+                          <RefreshCw className="w-5 h-5 animate-spin-slow" />
+                          Scan Website
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleCancelScan}
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                          id="btn-cancel"
+                        >
+                          <X className="w-5 h-5 text-red-500" />
+                          Cancel Scan
+                        </button>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400 block mt-2 text-center">
+                      Deteksi CMS, sitemap, dan crawling otomatis secara instan.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label htmlFor="pasted-sitemap" className="text-sm font-semibold text-gray-700 block">
+                        Paste Teks Sitemap / Salinan XML / Salinan Yoast SEO
+                      </label>
+                      <textarea
+                        id="pasted-sitemap"
+                        rows={6}
+                        placeholder="Tempel/paste teks sitemap di sini (bisa berupa teks XML sitemap, salinan sitemap Yoast SEO HTML, atau teks biasa berisi daftar URL)..."
+                        value={pastedSitemapText}
+                        onChange={(e) => setPastedSitemapText(e.target.value)}
                         disabled={isScanning}
-                        className="w-full pl-12 pr-4 py-4 rounded-2xl border border-gray-200 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#fe4c6f]/20 focus:border-[#fe4c6f] text-base transition-all disabled:bg-gray-50"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !isScanning) {
-                            handleStartScan();
-                          }
-                        }}
+                        className="w-full p-4 rounded-2xl border border-gray-200 text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#fe4c6f]/20 focus:border-[#fe4c6f] text-sm transition-all disabled:bg-gray-50 font-mono"
                       />
                     </div>
-                    
-                    {!isScanning ? (
-                      <button
-                        onClick={() => handleStartScan()}
-                        className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                        id="btn-scan"
-                      >
-                        <RefreshCw className="w-5 h-5 animate-spin-slow" />
-                        Scan Website
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleCancelScan}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                        id="btn-cancel"
-                      >
-                        <X className="w-5 h-5 text-red-500" />
-                        Cancel Scan
-                      </button>
-                    )}
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400 leading-relaxed block max-w-md">
+                        Mendukung pembersihan junk otomatis, klasifikasi tipe URL, dan deteksi domain otomatis dari teks yang di-paste.
+                      </span>
+                      {!isScanning ? (
+                        <button
+                          onClick={handleManualExtract}
+                          className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                          id="btn-extract-sitemap"
+                        >
+                          <FileCode className="w-5 h-5" />
+                          Urutkan & Ekstrak URL
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleCancelScan}
+                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                          id="btn-cancel-sitemap"
+                        >
+                          <X className="w-5 h-5 text-red-500" />
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-400 block mt-2 text-center">
-                    Deteksi CMS, sitemap, dan crawling otomatis secara instan.
-                  </span>
-                </div>
+                )}
 
                 {/* Real-time Loading & Progress screen inside Workspace */}
                 {isScanning && (
@@ -609,10 +966,10 @@ export default function App() {
                         id="log-console"
                       >
                         {statusLogs.map((log, i) => (
-                          <div key={i} className="flex gap-2">
-                            <span className="text-gray-500 select-none">&gt;</span>
-                            <span>{log}</span>
-                          </div>
+                           <div key={i} className="flex gap-2">
+                             <span className="text-gray-500 select-none">&gt;</span>
+                             <span>{log}</span>
+                           </div>
                         ))}
                       </div>
                     </div>
@@ -635,12 +992,24 @@ export default function App() {
                   <div className="space-y-1">
                     <h4 className="text-base font-bold text-red-800">Gagal Mengekstrak URL</h4>
                     <p className="text-sm text-red-700 leading-relaxed">{errorMsg}</p>
-                    <div className="flex gap-3 mt-3">
+                    <div className="flex flex-wrap gap-3 mt-4">
                       <button 
                         onClick={handleRetry}
                         className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-800 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
                       >
                         <RefreshCw className="w-3.5 h-3.5" /> Coba Lagi
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setInputMode("manual");
+                          const element = document.getElementById("input-section");
+                          if (element) {
+                            element.scrollIntoView({ behavior: "smooth" });
+                          }
+                        }}
+                        className="px-4 py-2 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-[#fe4c6f]" /> Paste Teks Sitemap Manual
                       </button>
                     </div>
                   </div>
