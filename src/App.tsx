@@ -1070,32 +1070,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="border-t border-gray-50 pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Website Target</span>
-                          <a href={summary?.website} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#fe4c6f] hover:underline truncate block max-w-full">
-                            {summary?.website}
-                          </a>
-                        </div>
-                        <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Platform CMS</span>
-                          <span className="text-xs font-bold text-gray-800 block">
-                            {summary?.cms || "Tidak diketahui"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Durasi Scan</span>
-                          <span className="text-xs font-bold text-gray-800 block">
-                            {summary?.duration || "0.0s"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Sitemaps</span>
-                          <span className="text-xs font-bold text-gray-800 block">
-                            {summary?.sitemapsFound || 0} XML sitemaps
-                          </span>
-                        </div>
-                      </div>
+                      {/* Removed Website Target, Platform CMS, Durasi Scan, and Sitemaps as requested */}
 
                       <div className="border-t border-gray-50 pt-3 flex justify-between items-center text-[11px] text-gray-400">
                         <span>Tanggal Scan: {summary?.scanDate}</span>
