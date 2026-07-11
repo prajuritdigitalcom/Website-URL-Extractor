@@ -911,6 +911,8 @@ app.get("/api/scan-stream", async (req, res) => {
       sitemapsToTry.add(`${targetOrigin}/page-sitemap.xml`);
       sitemapsToTry.add(`${targetOrigin}/category-sitemap.xml`);
       sitemapsToTry.add(`${targetOrigin}/tag-sitemap.xml`);
+      sitemapsToTry.add(`${targetOrigin}/post_tag-sitemap.xml`);
+      sitemapsToTry.add(`${targetOrigin}/elementor-hf-sitemap.xml`);
       sitemapsToTry.add(`${targetOrigin}/author-sitemap.xml`);
       sitemapsToTry.add(`${targetOrigin}/news-sitemap.xml`);
       sitemapsToTry.add(`${targetOrigin}/product-sitemap.xml`);
@@ -921,7 +923,7 @@ app.get("/api/scan-stream", async (req, res) => {
     const sitemapQueue = Array.from(sitemapsToTry);
     let sitemapsFoundCount = 0;
 
-    while (sitemapQueue.length > 0 && scannedSitemaps.size < 15) {
+    while (sitemapQueue.length > 0 && scannedSitemaps.size < 50) {
       if (isCancelled) return res.end();
       const currentSitemapUrl = sitemapQueue.shift()!;
       if (scannedSitemaps.has(currentSitemapUrl)) continue;
@@ -937,13 +939,27 @@ app.get("/api/scan-stream", async (req, res) => {
           sitemapsFoundCount++;
           const sitemapXml = await sitemapRes.text();
           
-          // Extract URLs using <loc> tags regex
-          const locRegex = /<loc>(https?:\/\/[^\s<]+)<\/loc>/gi;
+          // Robust XML parsing matching <loc>...</loc> content even inside CDATA
+          const locRegex = /<loc>([\s\S]*?)<\/loc>/gi;
           let match;
           while ((match = locRegex.exec(sitemapXml)) !== null) {
-            const discoveredUrl = match[1];
-            // If it's a sub-sitemap (ends in .xml or xml.gz)
-            if (discoveredUrl.toLowerCase().includes(".xml") || discoveredUrl.toLowerCase().includes(".xml.gz")) {
+            let discoveredUrl = match[1].trim();
+            // Remove CDATA wrapper if present
+            if (discoveredUrl.startsWith("<![CDATA[")) {
+              discoveredUrl = discoveredUrl.substring(9);
+            }
+            if (discoveredUrl.endsWith("]]>")) {
+              discoveredUrl = discoveredUrl.substring(0, discoveredUrl.length - 3);
+            }
+            discoveredUrl = discoveredUrl.trim();
+
+            if (!discoveredUrl.startsWith("http")) {
+              continue;
+            }
+
+            // If it's a sub-sitemap (ends in .xml or xml.gz or contains sitemap)
+            const isXml = discoveredUrl.toLowerCase().includes(".xml") || discoveredUrl.toLowerCase().includes(".xml.gz") || discoveredUrl.toLowerCase().includes("sitemap");
+            if (isXml) {
               if (!scannedSitemaps.has(discoveredUrl)) {
                 sitemapQueue.push(discoveredUrl);
               }
