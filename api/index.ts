@@ -399,16 +399,17 @@ app.get("/api/scan", async (req, res) => {
     // CMS Detection
     let cms = "Custom CMS";
     const lowercaseHtml = homeHtml.toLowerCase();
+    const hostLower = targetHost.toLowerCase();
     
-    if (lowercaseHtml.includes("wp-content") || lowercaseHtml.includes("wp-includes") || homeHeaders["x-powered-by"]?.toLowerCase().includes("wp")) {
+    if (lowercaseHtml.includes("wp-content") || lowercaseHtml.includes("wp-includes") || homeHeaders["x-powered-by"]?.toLowerCase().includes("wp") || hostLower.includes("wordpress.com")) {
       cms = "WordPress";
-    } else if (lowercaseHtml.includes("blogger.com") || lowercaseHtml.includes("blogspot.com") || lowercaseHtml.includes("blogger-button")) {
+    } else if (lowercaseHtml.includes("blogger.com") || lowercaseHtml.includes("blogspot.com") || lowercaseHtml.includes("blogger-button") || hostLower.includes(".blogspot.")) {
       cms = "Blogger";
-    } else if (lowercaseHtml.includes("cdn.shopify.com") || lowercaseHtml.includes("shopify-payment-button")) {
+    } else if (lowercaseHtml.includes("cdn.shopify.com") || lowercaseHtml.includes("shopify-payment-button") || hostLower.includes("myshopify.com")) {
       cms = "Shopify";
     } else if (lowercaseHtml.includes("joomla")) {
       cms = "Joomla";
-    } else if (lowercaseHtml.includes("wix.com") || lowercaseHtml.includes("wix-code")) {
+    } else if (lowercaseHtml.includes("wix.com") || lowercaseHtml.includes("wix-code") || lowercaseHtml.includes("wixstatic.com") || lowercaseHtml.includes("_wix_") || hostLower.includes("wixsite.com") || hostLower.includes("wix.com")) {
       cms = "Wix";
     } else if (lowercaseHtml.includes("ghost-sdk") || lowercaseHtml.includes("ghost-portal")) {
       cms = "Ghost";
@@ -452,45 +453,72 @@ app.get("/api/scan", async (req, res) => {
 
     addDiscoveredUrl(resolvedUrl, "Crawler");
 
-    // robots.txt
-    const robotsUrl = `${targetOrigin}/robots.txt`;
+    // Define all bases (support subdirectory-based sites like Wix)
+    const bases = new Set<string>();
+    bases.add(targetOrigin);
+    const pathParts = new URL(targetUrl).pathname.split("/").filter(Boolean);
+    if (pathParts.length > 0) {
+      bases.add(`${targetOrigin}/${pathParts[0]}`);
+      if (pathParts.length > 1) {
+        bases.add(`${targetOrigin}/${pathParts.slice(0, 2).join("/")}`);
+      }
+    }
+
     let robotsTxt = "";
     let sitemapsFromRobots: string[] = [];
 
-    try {
-      const robotsRes = await resilientFetch(robotsUrl, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-      if (robotsRes.ok) {
-        robotsTxt = await robotsRes.text();
-        const lines = robotsTxt.split("\n");
-        for (const line of lines) {
-          if (line.toLowerCase().startsWith("sitemap:")) {
-            const sUrl = line.substring(8).trim();
-            if (sUrl) sitemapsFromRobots.push(sUrl);
+    for (const base of bases) {
+      const robotsUrl = `${base}/robots.txt`;
+      try {
+        const robotsRes = await resilientFetch(robotsUrl, {
+          headers: { "User-Agent": "Mozilla/5.0" }
+        });
+        if (robotsRes.ok) {
+          const text = await robotsRes.text();
+          robotsTxt += (robotsTxt ? "\n" : "") + text;
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.toLowerCase().startsWith("sitemap:")) {
+              const sUrl = line.substring(8).trim();
+              if (sUrl) sitemapsFromRobots.push(sUrl);
+            }
           }
         }
+      } catch (e) {
+        // Ignored
       }
-    } catch (e) {
-      // Ignored
     }
 
     // Sitemaps
     const sitemapsToTry = new Set<string>(sitemapsFromRobots);
-    sitemapsToTry.add(`${targetOrigin}/sitemap.xml`);
-    sitemapsToTry.add(`${targetOrigin}/sitemap_index.xml`);
+    for (const base of bases) {
+      sitemapsToTry.add(`${base}/sitemap.xml`);
+      sitemapsToTry.add(`${base}/sitemap_index.xml`);
+      sitemapsToTry.add(`${base}/site-map.xml`);
+      sitemapsToTry.add(`${base}/sitemap-index.xml`);
 
-    if (cms === "WordPress") {
-      sitemapsToTry.add(`${targetOrigin}/wp-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/post-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/page-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/category-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/tag-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/post_tag-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/elementor-hf-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/author-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/news-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/product-sitemap.xml`);
+      if (cms === "WordPress") {
+        sitemapsToTry.add(`${base}/wp-sitemap.xml`);
+        sitemapsToTry.add(`${base}/post-sitemap.xml`);
+        sitemapsToTry.add(`${base}/page-sitemap.xml`);
+        sitemapsToTry.add(`${base}/category-sitemap.xml`);
+        sitemapsToTry.add(`${base}/tag-sitemap.xml`);
+        sitemapsToTry.add(`${base}/post_tag-sitemap.xml`);
+        sitemapsToTry.add(`${base}/elementor-hf-sitemap.xml`);
+        sitemapsToTry.add(`${base}/author-sitemap.xml`);
+        sitemapsToTry.add(`${base}/news-sitemap.xml`);
+        sitemapsToTry.add(`${base}/product-sitemap.xml`);
+      } else if (cms === "Wix") {
+        sitemapsToTry.add(`${base}/blog-posts-sitemap.xml`);
+        sitemapsToTry.add(`${base}/store-products-sitemap.xml`);
+        sitemapsToTry.add(`${base}/pages-sitemap.xml`);
+        sitemapsToTry.add(`${base}/main-sitemap.xml`);
+        sitemapsToTry.add(`${base}/portfolio-sitemap.xml`);
+        sitemapsToTry.add(`${base}/events-sitemap.xml`);
+        sitemapsToTry.add(`${base}/booking-services-sitemap.xml`);
+        sitemapsToTry.add(`${base}/forum-categories-sitemap.xml`);
+        sitemapsToTry.add(`${base}/forum-posts-sitemap.xml`);
+      }
     }
 
     const scannedSitemaps = new Set<string>();
@@ -831,18 +859,19 @@ app.get("/api/scan-stream", async (req, res) => {
     // CMS Detection Logic
     let cms = "Unknown";
     const lowercaseHtml = homeHtml.toLowerCase();
+    const hostLower = targetHost.toLowerCase();
     
-    if (lowercaseHtml.includes("wp-content") || lowercaseHtml.includes("wp-includes") || lowercaseHtml.includes("wp-json") || homeHeaders["x-powered-by"]?.includes("WP") || lowercaseHtml.includes("wp-embed")) {
+    if (lowercaseHtml.includes("wp-content") || lowercaseHtml.includes("wp-includes") || lowercaseHtml.includes("wp-json") || homeHeaders["x-powered-by"]?.includes("WP") || lowercaseHtml.includes("wp-embed") || hostLower.includes("wordpress.com")) {
       cms = "WordPress";
-    } else if (lowercaseHtml.includes("blogspot.com") || lowercaseHtml.includes("blogger.com/static") || lowercaseHtml.includes('name="generator" content="blogger"') || lowercaseHtml.includes('name=\'generator\' content=\'blogger\'')) {
+    } else if (lowercaseHtml.includes("blogspot.com") || lowercaseHtml.includes("blogger.com/static") || lowercaseHtml.includes('name="generator" content="blogger"') || lowercaseHtml.includes('name=\'generator\' content=\'blogger\'') || hostLower.includes(".blogspot.")) {
       cms = "Blogger";
-    } else if (lowercaseHtml.includes("cdn.shopify.com") || lowercaseHtml.includes("shopify.js") || lowercaseHtml.includes("shopify.shop") || lowercaseHtml.includes("shopify-checkout")) {
+    } else if (lowercaseHtml.includes("cdn.shopify.com") || lowercaseHtml.includes("shopify.js") || lowercaseHtml.includes("shopify.shop") || lowercaseHtml.includes("shopify-checkout") || hostLower.includes("myshopify.com")) {
       cms = "Shopify";
     } else if (lowercaseHtml.includes("/media/system/js/") || lowercaseHtml.includes('content="joomla!')) {
       cms = "Joomla";
     } else if (lowercaseHtml.includes("sites/all/modules") || lowercaseHtml.includes("sites/default") || lowercaseHtml.includes('content="drupal')) {
       cms = "Drupal";
-    } else if (lowercaseHtml.includes("wixstatic.com") || lowercaseHtml.includes("_wix_") || lowercaseHtml.includes("wix-code") || lowercaseHtml.includes('content="wix.com')) {
+    } else if (lowercaseHtml.includes("wixstatic.com") || lowercaseHtml.includes("_wix_") || lowercaseHtml.includes("wix-code") || lowercaseHtml.includes('content="wix.com') || hostLower.includes("wixsite.com") || hostLower.includes("wix.com")) {
       cms = "Wix";
     } else if (lowercaseHtml.includes("static1.squarespace.com") || lowercaseHtml.includes("squarespace.oninitialize")) {
       cms = "Squarespace";
@@ -896,28 +925,42 @@ app.get("/api/scan-stream", async (req, res) => {
     // Always add home page
     addDiscoveredUrl(resolvedUrl, "Crawler");
 
+    // Define all bases (support subdirectory-based sites like Wix)
+    const bases = new Set<string>();
+    bases.add(targetOrigin);
+    const pathParts = new URL(targetUrl).pathname.split("/").filter(Boolean);
+    if (pathParts.length > 0) {
+      bases.add(`${targetOrigin}/${pathParts[0]}`);
+      if (pathParts.length > 1) {
+        bases.add(`${targetOrigin}/${pathParts.slice(0, 2).join("/")}`);
+      }
+    }
+
     // 2. Priority 2: robots.txt
     sendProgress("Searching robots.txt...", 40, { step: "robots" });
-    const robotsUrl = `${targetOrigin}/robots.txt`;
     let robotsTxt = "";
     let sitemapsFromRobots: string[] = [];
 
-    try {
-      const robotsRes = await resilientFetch(robotsUrl, {
-        headers: { "User-Agent": "Mozilla/5.0" }
-      });
-      if (robotsRes.ok) {
-        robotsTxt = await robotsRes.text();
-        const lines = robotsTxt.split("\n");
-        for (const line of lines) {
-          if (line.toLowerCase().startsWith("sitemap:")) {
-            const sUrl = line.substring(8).trim();
-            if (sUrl) sitemapsFromRobots.push(sUrl);
+    for (const base of bases) {
+      const robotsUrl = `${base}/robots.txt`;
+      try {
+        const robotsRes = await resilientFetch(robotsUrl, {
+          headers: { "User-Agent": "Mozilla/5.0" }
+        });
+        if (robotsRes.ok) {
+          const text = await robotsRes.text();
+          robotsTxt += (robotsTxt ? "\n" : "") + text;
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.toLowerCase().startsWith("sitemap:")) {
+              const sUrl = line.substring(8).trim();
+              if (sUrl) sitemapsFromRobots.push(sUrl);
+            }
           }
         }
+      } catch (e) {
+        console.log(`No robots.txt found or accessible at ${robotsUrl}`);
       }
-    } catch (e) {
-      console.log("No robots.txt found or accessible");
     }
 
     if (isCancelled) return res.end();
@@ -925,21 +968,36 @@ app.get("/api/scan-stream", async (req, res) => {
     // 3. Priority 3 & 4: Search standard sitemaps
     sendProgress("Searching sitemaps...", 50, { step: "sitemaps_search" });
     const sitemapsToTry = new Set<string>(sitemapsFromRobots);
-    sitemapsToTry.add(`${targetOrigin}/sitemap.xml`);
-    sitemapsToTry.add(`${targetOrigin}/sitemap_index.xml`);
+    
+    for (const base of bases) {
+      sitemapsToTry.add(`${base}/sitemap.xml`);
+      sitemapsToTry.add(`${base}/sitemap_index.xml`);
+      sitemapsToTry.add(`${base}/site-map.xml`);
+      sitemapsToTry.add(`${base}/sitemap-index.xml`);
 
-    // 4. Priority 5: WordPress specific sitemaps if WordPress
-    if (cms === "WordPress") {
-      sitemapsToTry.add(`${targetOrigin}/wp-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/post-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/page-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/category-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/tag-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/post_tag-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/elementor-hf-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/author-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/news-sitemap.xml`);
-      sitemapsToTry.add(`${targetOrigin}/product-sitemap.xml`);
+      // 4. Priority 5: CMS-specific sitemaps
+      if (cms === "WordPress") {
+        sitemapsToTry.add(`${base}/wp-sitemap.xml`);
+        sitemapsToTry.add(`${base}/post-sitemap.xml`);
+        sitemapsToTry.add(`${base}/page-sitemap.xml`);
+        sitemapsToTry.add(`${base}/category-sitemap.xml`);
+        sitemapsToTry.add(`${base}/tag-sitemap.xml`);
+        sitemapsToTry.add(`${base}/post_tag-sitemap.xml`);
+        sitemapsToTry.add(`${base}/elementor-hf-sitemap.xml`);
+        sitemapsToTry.add(`${base}/author-sitemap.xml`);
+        sitemapsToTry.add(`${base}/news-sitemap.xml`);
+        sitemapsToTry.add(`${base}/product-sitemap.xml`);
+      } else if (cms === "Wix") {
+        sitemapsToTry.add(`${base}/blog-posts-sitemap.xml`);
+        sitemapsToTry.add(`${base}/store-products-sitemap.xml`);
+        sitemapsToTry.add(`${base}/pages-sitemap.xml`);
+        sitemapsToTry.add(`${base}/main-sitemap.xml`);
+        sitemapsToTry.add(`${base}/portfolio-sitemap.xml`);
+        sitemapsToTry.add(`${base}/events-sitemap.xml`);
+        sitemapsToTry.add(`${base}/booking-services-sitemap.xml`);
+        sitemapsToTry.add(`${base}/forum-categories-sitemap.xml`);
+        sitemapsToTry.add(`${base}/forum-posts-sitemap.xml`);
+      }
     }
 
     // Process sitemaps recursively
