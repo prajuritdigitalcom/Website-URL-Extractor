@@ -53,7 +53,7 @@ async function resilientFetch(urlStr: string, options: any = {}, redirectCount =
       }
     };
   } catch (err: any) {
-    console.warn(`Native fetch failed for ${urlStr}: ${err.message}. Trying resilient HTTPS/HTTP fallback.`);
+    console.error(`[VERCEL_SCAN_ERROR_TRACK] Native fetch failed for ${urlStr}: ${err.message}`);
     
     return new Promise((resolve, reject) => {
       try {
@@ -86,7 +86,7 @@ async function resilientFetch(urlStr: string, options: any = {}, redirectCount =
           const statusCode = res.statusCode || 200;
           if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
             const redirectUrl = new URL(res.headers.location, urlStr).href;
-            console.log(`Fallback following redirect to: ${redirectUrl}`);
+            console.log(`[VERCEL_SCAN_ERROR_TRACK] Fallback following redirect to: ${redirectUrl}`);
             resilientFetch(redirectUrl, options, redirectCount + 1)
               .then(resolve)
               .catch(reject);
@@ -123,10 +123,12 @@ async function resilientFetch(urlStr: string, options: any = {}, redirectCount =
         });
 
         req.on("error", (reqErr) => {
+          console.error(`[VERCEL_SCAN_ERROR_TRACK] Fallback request error for ${urlStr}: ${reqErr.message || reqErr}`);
           reject(new Error(`Koneksi gagal ke ${urlStr}: ${reqErr.message}`));
         });
 
         req.on("timeout", () => {
+          console.error(`[VERCEL_SCAN_ERROR_TRACK] Fallback request timeout after 8s for ${urlStr}`);
           req.destroy();
           reject(new Error(`Timeout koneksi setelah 8 detik saat mengakses ${urlStr}`));
         });
@@ -136,6 +138,7 @@ async function resilientFetch(urlStr: string, options: any = {}, redirectCount =
         }
         req.end();
       } catch (innerErr: any) {
+        console.error(`[VERCEL_SCAN_ERROR_TRACK] Fallback internal exception for ${urlStr}: ${innerErr.message || innerErr}`);
         reject(innerErr);
       }
     });
@@ -322,6 +325,7 @@ app.get("/api/scan-stream", async (req, res) => {
     let resolvedUrl = targetUrl;
 
     try {
+      console.log(`[VERCEL_SCAN_ERROR_TRACK] Starting primary scan for: ${targetUrl}`);
       const homeRes = await resilientFetch(targetUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -334,10 +338,19 @@ app.get("/api/scan-stream", async (req, res) => {
       homeRes.headers.forEach((val, key) => {
         homeHeaders[key.toLowerCase()] = val;
       });
+
+      console.log(`[VERCEL_SCAN_ERROR_TRACK] Primary scan completed. Status: ${homeRes.status}, OK: ${homeRes.ok}`);
+      if (!homeRes.ok) {
+        console.error(`[VERCEL_SCAN_ERROR_TRACK] WARNING: Target returned non-OK status ${homeRes.status}`);
+        console.error(`[VERCEL_SCAN_ERROR_TRACK] Response Headers:`, JSON.stringify(homeHeaders));
+        console.error(`[VERCEL_SCAN_ERROR_TRACK] HTML Body Preview (first 1000 chars):`, homeHtml.substring(0, 1000));
+      }
     } catch (e: any) {
+      console.error(`[VERCEL_SCAN_ERROR_TRACK] Primary scan exception for ${targetUrl}:`, e.message || e);
       // Retry with HTTP if HTTPS failed, or throw
       if (targetUrl.startsWith("https://")) {
         const httpUrl = targetUrl.replace("https://", "http://");
+        console.log(`[VERCEL_SCAN_ERROR_TRACK] Attempting HTTP fallback retry to: ${httpUrl}`);
         try {
           const homeRes = await resilientFetch(httpUrl, {
             headers: {
@@ -349,7 +362,15 @@ app.get("/api/scan-stream", async (req, res) => {
           homeRes.headers.forEach((val, key) => {
             homeHeaders[key.toLowerCase()] = val;
           });
+
+          console.log(`[VERCEL_SCAN_ERROR_TRACK] HTTP fallback completed. Status: ${homeRes.status}, OK: ${homeRes.ok}`);
+          if (!homeRes.ok) {
+            console.error(`[VERCEL_SCAN_ERROR_TRACK] WARNING: HTTP fallback returned non-OK status ${homeRes.status}`);
+            console.error(`[VERCEL_SCAN_ERROR_TRACK] Response Headers:`, JSON.stringify(homeHeaders));
+            console.error(`[VERCEL_SCAN_ERROR_TRACK] HTML Body Preview (first 1000 chars):`, homeHtml.substring(0, 1000));
+          }
         } catch (retryErr: any) {
+          console.error(`[VERCEL_SCAN_ERROR_TRACK] HTTP fallback also failed for ${httpUrl}:`, retryErr.message || retryErr);
           throw new Error(`Gagal mengakses website: ${retryErr.message || "Timeout / Koneksi ditolak"}`);
         }
       } else {
@@ -708,7 +729,7 @@ Pastikan tidak ada markdown pembungkus di luar JSON.
     });
 
   } catch (error: any) {
-    console.error("Scanning Error:", error);
+    console.error("[VERCEL_SCAN_ERROR_TRACK] Scanning Error:", error);
     sendProgress("Error", 0, {
       step: "error",
       error: error.message || "Terjadi kesalahan internal saat pemindaian"
