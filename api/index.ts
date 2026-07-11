@@ -190,6 +190,31 @@ interface ScanStats {
   video: number;
 }
 
+// Helper to extract all links from an HTML string
+function extractLinksFromHtml(html: string, baseUrl: string, targetHost: string, addDiscoveredUrl: (url: string, source: string) => void) {
+  try {
+    const hrefRegex = /href=["']([^"']+)["']/gi;
+    let match;
+    while ((match = hrefRegex.exec(html)) !== null) {
+      let href = match[1].trim();
+      if (!href || href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+        continue;
+      }
+      try {
+        const resolvedHref = new URL(href, baseUrl).href;
+        const parsedResolved = new URL(resolvedHref);
+        if (parsedResolved.hostname === targetHost || parsedResolved.hostname.endsWith("." + targetHost) || targetHost.endsWith("." + parsedResolved.hostname)) {
+          addDiscoveredUrl(resolvedHref, "Crawler");
+        }
+      } catch (err) {
+        // Ignore individual bad hrefs
+      }
+    }
+  } catch (e) {
+    // Ignore outer errors
+  }
+}
+
 // Heuristics for classifying URL types
 function classifyUrlHeuristically(urlStr: string, cms: string): string {
   try {
@@ -461,21 +486,36 @@ app.get("/api/scan", async (req, res) => {
       }
     }
 
+    // Immediately extract links from the already-fetched homepage HTML to avoid extra requests
+    extractLinksFromHtml(homeHtml, resolvedUrl, targetHost, addDiscoveredUrl);
+
     // Crawler
-    if (discoveredUrlsMap.size < 15) {
+    if (discoveredUrlsMap.size < 20) {
       const crawlQueue: { url: string; depth: number }[] = [{ url: resolvedUrl, depth: 0 }];
       const visitedCrawl = new Set<string>([resolvedUrl]);
+      let extraPagesFetched = 0;
       
       while (crawlQueue.length > 0 && visitedCrawl.size < 40 && discoveredUrlsMap.size < 100) {
         const currentItem = crawlQueue.shift()!;
         if (currentItem.depth > 1) continue;
 
         try {
-          const pageRes = await resilientFetch(currentItem.url, {
-            headers: { "User-Agent": "Mozilla/5.0" }
-          });
-          if (pageRes.ok) {
-            const pageHtml = await pageRes.text();
+          let pageHtml = "";
+          if (currentItem.url === resolvedUrl) {
+            pageHtml = homeHtml;
+          } else {
+            if (extraPagesFetched >= 5) continue; // Limit extra HTTP requests to 5 max
+            extraPagesFetched++;
+            
+            const pageRes = await resilientFetch(currentItem.url, {
+              headers: { "User-Agent": "Mozilla/5.0" }
+            });
+            if (pageRes.ok) {
+              pageHtml = await pageRes.text();
+            }
+          }
+
+          if (pageHtml) {
             const hrefRegex = /href=["']([^"']+)["']/gi;
             let match;
             while ((match = hrefRegex.exec(pageHtml)) !== null) {
@@ -885,12 +925,16 @@ app.get("/api/scan-stream", async (req, res) => {
 
     if (isCancelled) return res.end();
 
+    // Immediately extract links from the already-fetched homepage HTML to avoid extra requests
+    extractLinksFromHtml(homeHtml, resolvedUrl, targetHost, addDiscoveredUrl);
+
     // 6. Priority 7: Lightweight Crawler (Crawl internal links from homepage, up to max depth 2)
     // Runs if sitemaps/feeds gave fewer than 15 links, or as a complement
     if (discoveredUrlsMap.size < 20) {
       sendProgress("Crawling Website Internal Links...", 75, { step: "crawler_internal" });
       const crawlQueue: { url: string; depth: number }[] = [{ url: resolvedUrl, depth: 0 }];
       const visitedCrawl = new Set<string>([resolvedUrl]);
+      let extraPagesFetched = 0;
       
       while (crawlQueue.length > 0 && visitedCrawl.size < 150 && discoveredUrlsMap.size < 250) {
         if (isCancelled) return res.end();
@@ -899,15 +943,24 @@ app.get("/api/scan-stream", async (req, res) => {
         if (currentItem.depth > 2) continue;
 
         try {
-          const pageRes = await resilientFetch(currentItem.url, {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            }
-          });
-          if (pageRes.ok) {
-            const pageHtml = await pageRes.text();
+          let pageHtml = "";
+          if (currentItem.url === resolvedUrl) {
+            pageHtml = homeHtml;
+          } else {
+            if (extraPagesFetched >= 5) continue; // Limit extra HTTP requests to 5 max
+            extraPagesFetched++;
             
-            // Extract a href attributes
+            const pageRes = await resilientFetch(currentItem.url, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+              }
+            });
+            if (pageRes.ok) {
+              pageHtml = await pageRes.text();
+            }
+          }
+
+          if (pageHtml) {
             const hrefRegex = /href=["']([^"']+)["']/gi;
             let match;
             while ((match = hrefRegex.exec(pageHtml)) !== null) {
