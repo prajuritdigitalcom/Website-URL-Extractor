@@ -573,9 +573,9 @@ export default function App() {
     } 
     
     else if (format === "csv") {
-      let csvContent = "No,URL,Type,Source,Status\r\n";
-      discoveredList.forEach((item, index) => {
-        csvContent += `${index + 1},"${item.url}","${item.type}","${item.source}","${item.status}"\r\n`;
+      let csvContent = "URL\r\n";
+      discoveredList.forEach((item) => {
+        csvContent += `"${item.url}"\r\n`;
       });
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
       const link = document.createElement("a");
@@ -586,34 +586,15 @@ export default function App() {
     } 
     
     else if (format === "excel") {
-      const excelData = discoveredList.map((item, index) => ({
-        "No": index + 1,
-        "URL": item.url,
-        "Tipe": item.type,
-        "Sumber": item.source,
-        "Status": item.status
+      const excelData = discoveredList.map((item) => ({
+        "URL": item.url
       }));
       const worksheet = XLSX.utils.json_to_sheet(excelData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Hasil Ekstraksi");
       
-      // Auto-fit column widths
-      const maxColWidth = excelData.reduce((acc, row) => {
-        return {
-          No: 5,
-          URL: Math.max(acc.URL, row.URL.length),
-          Tipe: Math.max(acc.Tipe, row.Tipe.length),
-          Sumber: Math.max(acc.Sumber, row.Sumber.length),
-          Status: Math.max(acc.Status, row.Status.length),
-        };
-      }, { No: 5, URL: 20, Tipe: 10, Sumber: 10, Status: 10 });
-
       worksheet["!cols"] = [
-        { wch: maxColWidth.No },
-        { wch: Math.min(maxColWidth.URL, 80) },
-        { wch: maxColWidth.Tipe + 2 },
-        { wch: maxColWidth.Sumber + 2 },
-        { wch: maxColWidth.Status + 2 }
+        { wch: 80 }
       ];
 
       XLSX.writeFile(workbook, `${filename}.xlsx`);
@@ -621,11 +602,7 @@ export default function App() {
     } 
     
     else if (format === "json") {
-      const content = JSON.stringify({
-        summary,
-        stats,
-        urls: discoveredList
-      }, null, 2);
+      const content = JSON.stringify(discoveredList.map(item => item.url), null, 2);
       const blob = new Blob([content], { type: "application/json;charset=utf-8" });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
@@ -635,15 +612,12 @@ export default function App() {
     } 
     
     else if (format === "markdown") {
-      let mdContent = `# Website URL Extractor Report - ${summary?.website || ""}\n\n`;
-      mdContent += `* **Platform CMS:** ${summary?.cms || "Tidak diketahui"}\n`;
+      let mdContent = `# Hasil Ekstraksi URL - ${summary?.website || ""}\n\n`;
       mdContent += `* **Jumlah URL:** ${summary?.urlCount || 0}\n`;
       mdContent += `* **Waktu Scan:** ${summary?.scanDate || ""}\n\n`;
-      mdContent += `| No | URL | Tipe | Sumber | Status |\n`;
-      mdContent += `|---|---|---|---|---|\n`;
       
-      discoveredList.forEach((item, index) => {
-        mdContent += `| ${index + 1} | [${item.url}](${item.url}) | ${item.type} | ${item.source} | ${item.status} |\n`;
+      discoveredList.forEach((item) => {
+        mdContent += `- [${item.url}](${item.url})\n`;
       });
       
       const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
@@ -656,26 +630,15 @@ export default function App() {
     
     else if (format === "xml") {
       let xmlContent = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-      xmlContent += `<urlset_report>\n`;
-      xmlContent += `  <summary>\n`;
-      xmlContent += `    <website>${summary?.website || ""}</website>\n`;
-      xmlContent += `    <cms>${summary?.cms || ""}</cms>\n`;
-      xmlContent += `    <total_urls>${summary?.urlCount || 0}</total_urls>\n`;
-      xmlContent += `    <scan_date>${summary?.scanDate || ""}</scan_date>\n`;
-      xmlContent += `  </summary>\n`;
-      xmlContent += `  <urls>\n`;
+      xmlContent += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
       
       discoveredList.forEach((item) => {
-        xmlContent += `    <url>\n`;
-        xmlContent += `      <loc>${item.url}</loc>\n`;
-        xmlContent += `      <type>${item.type}</type>\n`;
-        xmlContent += `      <source>${item.source}</source>\n`;
-        xmlContent += `      <status>${item.status}</status>\n`;
-        xmlContent += `    </url>\n`;
+        xmlContent += `  <url>\n`;
+        xmlContent += `    <loc>${item.url}</loc>\n`;
+        xmlContent += `  </url>\n`;
       });
       
-      xmlContent += `  </urls>\n`;
-      xmlContent += `</urlset_report>`;
+      xmlContent += `</urlset>`;
       
       const blob = new Blob([xmlContent], { type: "application/xml;charset=utf-8" });
       const link = document.createElement("a");
