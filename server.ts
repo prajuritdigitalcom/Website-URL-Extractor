@@ -3,11 +3,144 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import http from "http";
+import https from "https";
 
 dotenv.config();
 
 // Bypass SSL issues since some Indonesian sites might have misconfigured/expired certs
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+interface ResilientResponse {
+  ok: boolean;
+  status: number;
+  text: () => Promise<string>;
+  url: string;
+  headers: {
+    forEach: (cb: (val: string, key: string) => void) => void;
+    get: (key: string) => string | null;
+  };
+}
+
+async function resilientFetch(urlStr: string, options: any = {}, redirectCount = 0): Promise<ResilientResponse> {
+  if (redirectCount > 5) {
+    throw new Error("Terlalu banyak pengalihan (redirect loop)");
+  }
+
+  const userAgent = options.headers?.["User-Agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const accept = options.headers?.["Accept"] || "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8";
+
+  try {
+    const res = await fetch(urlStr, {
+      ...options,
+      headers: {
+        "User-Agent": userAgent,
+        "Accept": accept,
+        ...(options.headers || {})
+      }
+    });
+    const textData = await res.text();
+    return {
+      ok: res.ok,
+      status: res.status,
+      url: res.url || urlStr,
+      text: async () => textData,
+      headers: {
+        forEach: (cb) => {
+          res.headers.forEach(cb);
+        },
+        get: (key) => res.headers.get(key)
+      }
+    };
+  } catch (err: any) {
+    console.warn(`Native fetch failed for ${urlStr}: ${err.message}. Trying resilient HTTPS/HTTP fallback.`);
+    
+    return new Promise((resolve, reject) => {
+      try {
+        const parsedUrl = new URL(urlStr);
+        const isHttps = parsedUrl.protocol === "https:";
+        const reqModule = isHttps ? https : http;
+        
+        const reqHeaders: Record<string, string> = {
+          "User-Agent": userAgent,
+          "Accept": accept,
+        };
+        
+        if (options.headers) {
+          Object.keys(options.headers).forEach(k => {
+            reqHeaders[k] = options.headers[k];
+          });
+        }
+
+        const requestOptions: any = {
+          method: options.method || "GET",
+          headers: reqHeaders,
+          timeout: 8000,
+        };
+
+        if (isHttps) {
+          requestOptions.rejectUnauthorized = false; // Bypass SSL certificate verification
+        }
+
+        const req = reqModule.request(urlStr, requestOptions, (res) => {
+          const statusCode = res.statusCode || 200;
+          if (statusCode >= 300 && statusCode < 400 && res.headers.location) {
+            const redirectUrl = new URL(res.headers.location, urlStr).href;
+            console.log(`Fallback following redirect to: ${redirectUrl}`);
+            resilientFetch(redirectUrl, options, redirectCount + 1)
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+
+          const chunks: any[] = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            const textData = buffer.toString("utf-8");
+            
+            const headersMap = new Map<string, string>();
+            Object.keys(res.headers).forEach(k => {
+              const val = res.headers[k];
+              if (val) {
+                headersMap.set(k.toLowerCase(), Array.isArray(val) ? val.join(", ") : val);
+              }
+            });
+
+            resolve({
+              ok: statusCode >= 200 && statusCode < 300,
+              status: statusCode,
+              url: urlStr,
+              text: async () => textData,
+              headers: {
+                forEach: (cb) => {
+                  headersMap.forEach((val, key) => cb(val, key));
+                },
+                get: (key) => headersMap.get(key.toLowerCase()) || null
+              }
+            });
+          });
+        });
+
+        req.on("error", (reqErr) => {
+          reject(new Error(`Koneksi gagal ke ${urlStr}: ${reqErr.message}`));
+        });
+
+        req.on("timeout", () => {
+          req.destroy();
+          reject(new Error(`Timeout koneksi setelah 8 detik saat mengakses ${urlStr}`));
+        });
+
+        if (options.body) {
+          req.write(options.body);
+        }
+        req.end();
+      } catch (innerErr: any) {
+        reject(innerErr);
+      }
+    });
+  }
+}
 
 const app = express();
 const PORT = 3000;
@@ -189,17 +322,12 @@ app.get("/api/scan-stream", async (req, res) => {
     let resolvedUrl = targetUrl;
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
-      
-      const homeRes = await fetch(targetUrl, {
-        signal: controller.signal,
+      const homeRes = await resilientFetch(targetUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         }
       });
-      clearTimeout(timeoutId);
 
       resolvedUrl = homeRes.url;
       homeHtml = await homeRes.text();
@@ -211,15 +339,11 @@ app.get("/api/scan-stream", async (req, res) => {
       if (targetUrl.startsWith("https://")) {
         const httpUrl = targetUrl.replace("https://", "http://");
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 8000);
-          const homeRes = await fetch(httpUrl, {
-            signal: controller.signal,
+          const homeRes = await resilientFetch(httpUrl, {
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             }
           });
-          clearTimeout(timeoutId);
           resolvedUrl = homeRes.url;
           homeHtml = await homeRes.text();
           homeRes.headers.forEach((val, key) => {
@@ -306,7 +430,7 @@ app.get("/api/scan-stream", async (req, res) => {
     let sitemapsFromRobots: string[] = [];
 
     try {
-      const robotsRes = await fetch(robotsUrl, {
+      const robotsRes = await resilientFetch(robotsUrl, {
         headers: { "User-Agent": "Mozilla/5.0" }
       });
       if (robotsRes.ok) {
@@ -357,7 +481,7 @@ app.get("/api/scan-stream", async (req, res) => {
       sendProgress(`Reading Sitemap: ${path.basename(currentSitemapUrl)}`, 55, { step: "reading_sitemap" });
 
       try {
-        const sitemapRes = await fetch(currentSitemapUrl, {
+        const sitemapRes = await resilientFetch(currentSitemapUrl, {
           headers: { "User-Agent": "Mozilla/5.0" }
         });
         if (sitemapRes.ok) {
@@ -396,7 +520,7 @@ app.get("/api/scan-stream", async (req, res) => {
       for (const feedUrl of bloggerFeeds) {
         if (isCancelled) return res.end();
         try {
-          const feedRes = await fetch(feedUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+          const feedRes = await resilientFetch(feedUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
           if (feedRes.ok) {
             const feedXml = await feedRes.text();
             // Match alternate link hrefs
@@ -428,7 +552,7 @@ app.get("/api/scan-stream", async (req, res) => {
         if (currentItem.depth > 2) continue;
 
         try {
-          const pageRes = await fetch(currentItem.url, {
+          const pageRes = await resilientFetch(currentItem.url, {
             headers: {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             }
