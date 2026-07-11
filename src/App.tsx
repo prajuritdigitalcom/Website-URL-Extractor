@@ -895,7 +895,7 @@ export default function App() {
                             <RefreshCw className="w-5 h-5 animate-spin-slow" />
                             Scan Website
                           </button>
-                          {(urlInput || discoveredList.length > 0) && (
+                          {discoveredList.length > 0 && (
                             <button
                               onClick={handleReset}
                               className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-gray-200"
@@ -953,7 +953,7 @@ export default function App() {
                             <FileCode className="w-5 h-5" />
                             Urutkan & Ekstrak URL
                           </button>
-                          {(pastedSitemapText || discoveredList.length > 0) && (
+                          {discoveredList.length > 0 && (
                             <button
                               onClick={handleReset}
                               className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-gray-200"
