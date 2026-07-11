@@ -1103,20 +1103,16 @@ export default function App() {
                         
                         <div className="grid grid-cols-2 gap-3 mt-6">
                           {[
-                            { key: "excel", label: "Excel", icon: FileSpreadsheet, bgIcon: "bg-emerald-50 text-emerald-600 border border-emerald-100/50", hoverColor: "hover:bg-emerald-50/20 hover:border-emerald-200" },
-                            { key: "txt", label: "TXT Plain", icon: FileText, bgIcon: "bg-gray-50 text-gray-600 border border-gray-100", hoverColor: "hover:bg-gray-50/50 hover:border-gray-300" }
+                            { key: "excel", label: "Excel", icon: FileSpreadsheet, className: "bg-[#fe4c6f] text-white hover:bg-[#e33b5c] border border-transparent shadow-md shadow-[#fe4c6f]/15" },
+                            { key: "txt", label: "TXT Plain", icon: FileText, className: "bg-[#fe4c6f]/8 text-[#fe4c6f] hover:bg-[#fe4c6f]/15 border border-[#fe4c6f]/20" }
                           ].map((fmt) => (
                             <button
                               key={fmt.key}
                               onClick={() => handleDownload(fmt.key as any)}
-                              className={`flex items-center gap-2.5 p-3.5 border border-gray-100 rounded-2xl transition-all duration-200 text-left group cursor-pointer ${fmt.hoverColor}`}
+                              className={`flex items-center justify-center gap-2 p-3.5 rounded-2xl font-bold text-xs sm:text-sm transition-all duration-200 cursor-pointer ${fmt.className}`}
                             >
-                              <div className={`p-2 rounded-xl transition-colors ${fmt.bgIcon}`}>
-                                <fmt.icon className="w-4.5 h-4.5" />
-                              </div>
-                              <span className="text-xs sm:text-sm font-bold text-gray-800 leading-tight block group-hover:text-[#fe4c6f] transition-colors">
-                                {fmt.label}
-                              </span>
+                              <fmt.icon className="w-4 h-4 flex-shrink-0" />
+                              <span>{fmt.label}</span>
                             </button>
                           ))}
                         </div>
