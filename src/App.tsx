@@ -1185,7 +1185,7 @@ export default function App() {
                                     href={item.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-gray-800 hover:text-[#fe4c6f] hover:underline break-all block max-w-2xl"
+                                    className="text-gray-800 hover:text-[#fe4c6f] hover:underline break-all block flex-grow"
                                   >
                                     {item.url}
                                   </a>
