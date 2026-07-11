@@ -46,7 +46,6 @@ export default function App() {
 
   // Filters and search states
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTypeFilter, setSelectedTypeFilter] = useState("Semua");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
@@ -227,35 +226,16 @@ export default function App() {
 
   // Clean URLs list based on active filters
   const filteredList = discoveredList.filter((item) => {
-    // 1. Filter by Selected Type Tab
-    if (selectedTypeFilter !== "Semua") {
-      const typeLower = item.type.toLowerCase();
-      const filterLower = selectedTypeFilter.toLowerCase();
-      
-      if (filterLower === "artikel" && typeLower !== "article") return false;
-      if (filterLower === "halaman" && typeLower !== "page") return false;
-      if (filterLower === "kategori" && typeLower !== "category") return false;
-      if (filterLower === "tag" && typeLower !== "tag") return false;
-      if (filterLower === "produk" && typeLower !== "product") return false;
-      if (filterLower === "gambar" && typeLower !== "image") return false;
-      if (filterLower === "pdf" && typeLower !== "pdf") return false;
-      if (filterLower === "video" && typeLower !== "video") return false;
-    }
-
-    // 2. Search by Keyword
+    // Search by Keyword
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       const urlLower = item.url.toLowerCase();
-      const typeLower = item.type.toLowerCase();
       
-      // Keyword search matches URL string, Type, Folder structures (e.g. /p/ or /blog/), or Year
+      // Keyword search matches URL string or Year
       const matchesUrl = urlLower.includes(query);
-      const matchesType = typeLower.includes(query);
-      
-      // Year check (e.g., matching "2023" or "2024" inside URLs)
       const matchesYear = /\d{4}/.test(query) && urlLower.includes(query);
 
-      if (!matchesUrl && !matchesType && !matchesYear) {
+      if (!matchesUrl && !matchesYear) {
         return false;
       }
     }
@@ -677,77 +657,84 @@ export default function App() {
                 >
                   
                   {/* Summary Bento Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
-                    {/* General Metadata */}
-                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg md:col-span-2 space-y-4">
-                      <div className="flex justify-between items-center border-b border-gray-50 pb-3">
-                        <h3 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
+                    {/* Simplified Prominent Total Stats & Metadata */}
+                    <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-lg lg:col-span-2 flex flex-col justify-between space-y-6">
+                      <div className="flex justify-between items-center border-b border-gray-50 pb-4">
+                        <div className="flex items-center gap-2">
                           <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                          Ringkasan Scan Website
-                        </h3>
+                          <h3 className="text-base font-extrabold text-gray-900">
+                            Ringkasan Hasil Pemindaian
+                          </h3>
+                        </div>
                         <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
                           Aktif
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-4 gap-x-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 py-2">
+                        <div className="space-y-1">
+                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Jumlah Link Berhasil Di-Scrape</span>
+                          <span className="text-5xl sm:text-6xl font-black text-[#fe4c6f] font-mono tracking-tight leading-none">
+                            {discoveredList.length} <span className="text-xl font-bold text-gray-500 font-sans ml-1">URL</span>
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end justify-start">
+                          <button 
+                            onClick={handleRetry}
+                            className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-5 py-2.5 rounded-xl font-semibold text-xs transition-all duration-200 shadow-md shadow-[#fe4c6f]/10 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Re-scan Website
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-50 pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Website</span>
-                          <a href={summary?.website} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-[#fe4c6f] hover:underline truncate block max-w-full">
+                          <span className="text-xs font-semibold text-gray-400 block uppercase">Website Target</span>
+                          <a href={summary?.website} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#fe4c6f] hover:underline truncate block max-w-full">
                             {summary?.website}
                           </a>
                         </div>
                         <div>
                           <span className="text-xs font-semibold text-gray-400 block uppercase">Platform CMS</span>
-                          <span className="text-sm font-bold text-gray-800 block">
+                          <span className="text-xs font-bold text-gray-800 block">
                             {summary?.cms || "Tidak diketahui"}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Jumlah URL</span>
-                          <span className="text-sm font-extrabold text-[#fe4c6f] block font-mono">
-                            {summary?.urlCount || 0}
-                          </span>
-                        </div>
-                        <div>
                           <span className="text-xs font-semibold text-gray-400 block uppercase">Durasi Scan</span>
-                          <span className="text-sm font-semibold text-gray-800 block">
+                          <span className="text-xs font-bold text-gray-800 block">
                             {summary?.duration || "0.0s"}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Sitemaps Ditemukan</span>
-                          <span className="text-sm font-semibold text-gray-800 block">
-                            {summary?.sitemapsFound || 0}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-xs font-semibold text-gray-400 block uppercase">Robots.txt</span>
-                          <span className="text-sm font-semibold text-gray-800 block">
-                            {summary?.robotsTxtExists ? "Ditemukan" : "Tidak Ada"}
+                          <span className="text-xs font-semibold text-gray-400 block uppercase">Sitemaps</span>
+                          <span className="text-xs font-bold text-gray-800 block">
+                            {summary?.sitemapsFound || 0} XML sitemaps
                           </span>
                         </div>
                       </div>
 
-                      <div className="border-t border-gray-50 pt-3 flex justify-between items-center">
-                        <span className="text-xs text-gray-400">Tanggal Scan: {summary?.scanDate}</span>
-                        <button 
-                          onClick={handleRetry}
-                          className="text-[#fe4c6f] hover:text-[#e33b5c] text-xs font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" /> Re-scan
-                        </button>
+                      <div className="border-t border-gray-50 pt-3 flex justify-between items-center text-[11px] text-gray-400">
+                        <span>Tanggal Scan: {summary?.scanDate}</span>
+                        <span>Robots.txt: {summary?.robotsTxtExists ? "Ditemukan" : "Tidak Ada"}</span>
                       </div>
                     </div>
 
                     {/* Quick Downloads and Actions */}
-                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg space-y-4">
-                      <h3 className="text-base font-extrabold text-gray-900 border-b border-gray-50 pb-3">
-                        Format Unduhan
-                      </h3>
+                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg space-y-4 flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-base font-extrabold text-gray-900 border-b border-gray-50 pb-3">
+                          Format Unduhan
+                        </h3>
+                        <p className="text-xs text-gray-400 mt-2">
+                          Unduh seluruh hasil URL yang berhasil di-scrape ke dalam format file yang Anda butuhkan.
+                        </p>
+                      </div>
                       
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-2 pt-2">
                         {[
                           { key: "excel", label: "Excel (.xlsx)", icon: FileText, color: "hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200" },
                           { key: "csv", label: "CSV", icon: FileText, color: "hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200" },
@@ -770,62 +757,6 @@ export default function App() {
 
                   </div>
 
-                  {/* Complete Metric Stats */}
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                    {[
-                      { label: "Artikel", value: stats?.article || 0, color: "text-emerald-600", bg: "bg-emerald-50/50" },
-                      { label: "Halaman", value: stats?.page || 0, color: "text-blue-600", bg: "bg-blue-50/50" },
-                      { label: "Kategori", value: stats?.category || 0, color: "text-purple-600", bg: "bg-purple-50/50" },
-                      { label: "Tag", value: stats?.tag || 0, color: "text-amber-600", bg: "bg-amber-50/50" },
-                      { label: "Produk", value: stats?.product || 0, color: "text-pink-600", bg: "bg-pink-50/50" },
-                    ].map((statItem, idx) => (
-                      <div key={idx} className={`p-4 rounded-2xl border border-gray-100 shadow-sm ${statItem.bg} text-center space-y-1`}>
-                        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider block">{statItem.label}</span>
-                        <span className={`text-2xl font-extrabold font-mono ${statItem.color}`}>{statItem.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Clipboard / Copy Toolbelt */}
-                  <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-md flex flex-col md:flex-row gap-4 items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                      <Copy className="w-4 h-4 text-[#fe4c6f]" />
-                      Salin Instan URL ke Clipboard:
-                    </div>
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      <button
-                        onClick={() => handleCopy("all")}
-                        className="px-4 py-2 border border-gray-100 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-semibold text-gray-600 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        Copy Semua URL
-                      </button>
-                      <button
-                        onClick={() => handleCopy("article")}
-                        className="px-4 py-2 border border-emerald-100 bg-emerald-50/50 hover:bg-emerald-50 rounded-xl text-xs font-semibold text-emerald-700 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        Copy Hanya Artikel
-                      </button>
-                      <button
-                        onClick={() => handleCopy("page")}
-                        className="px-4 py-2 border border-blue-100 bg-blue-50/50 hover:bg-blue-50 rounded-xl text-xs font-semibold text-blue-700 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        Copy Hanya Halaman
-                      </button>
-                      <button
-                        onClick={() => handleCopy("csv")}
-                        className="px-4 py-2 border border-gray-100 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-semibold text-gray-600 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        Copy CSV
-                      </button>
-                      <button
-                        onClick={() => handleCopy("markdown")}
-                        className="px-4 py-2 border border-gray-100 bg-gray-50 hover:bg-gray-100 rounded-xl text-xs font-semibold text-gray-600 transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        Copy Markdown Table
-                      </button>
-                    </div>
-                  </div>
-
                   {/* Filter & Search Bar + Table Section */}
                   <div className="bg-white rounded-3xl border border-gray-100 shadow-lg overflow-hidden space-y-6 p-6">
                     
@@ -836,7 +767,7 @@ export default function App() {
                         <Search className="absolute left-3.5 top-3 w-4 h-4 text-gray-400" />
                         <input
                           type="text"
-                          placeholder="Cari kata kunci, URL, folder, atau tahun..."
+                          placeholder="Cari kata kunci atau URL..."
                           value={searchQuery}
                           onChange={(e) => {
                             setSearchQuery(e.target.value);
@@ -853,26 +784,6 @@ export default function App() {
 
                     </div>
 
-                    {/* Filter Category Tabs */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-thin">
-                      {["Semua", "Artikel", "Halaman", "Kategori", "Tag", "Produk", "Gambar", "PDF", "Video"].map((filter) => (
-                        <button
-                          key={filter}
-                          onClick={() => {
-                            setSelectedTypeFilter(filter);
-                            setCurrentPage(1);
-                          }}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 transition-colors cursor-pointer ${
-                            selectedTypeFilter === filter
-                              ? "bg-[#fe4c6f] text-white"
-                              : "bg-gray-50 hover:bg-gray-100 text-gray-600 border border-gray-100"
-                          }`}
-                        >
-                          {filter}
-                        </button>
-                      ))}
-                    </div>
-
                     {/* Result Table */}
                     <div className="overflow-x-auto rounded-2xl border border-gray-100">
                       <table className="w-full text-left border-collapse">
@@ -880,19 +791,16 @@ export default function App() {
                           <tr className="bg-gray-50 border-b border-gray-100">
                             <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-16">No</th>
                             <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">URL Website</th>
-                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-32 text-center">Tipe</th>
-                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-32 text-center">Sumber</th>
-                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-28 text-center">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 bg-white">
                           {currentItems.length > 0 ? (
                             currentItems.map((item, index) => (
-                              <tr key={index} className="hover:bg-gray-50/50 transition-colors">
+                              <tr key={index} className="hover:bg-gray-50/50 transition-colors group">
                                 <td className="px-6 py-4 text-sm font-mono text-gray-400 font-semibold">
                                   {indexOfFirstItem + index + 1}
                                 </td>
-                                <td className="px-6 py-4 text-sm font-medium">
+                                <td className="px-6 py-4 text-sm font-medium flex items-center justify-between gap-4">
                                   <a
                                     href={item.url}
                                     target="_blank"
@@ -901,29 +809,25 @@ export default function App() {
                                   >
                                     {item.url}
                                   </a>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                  <span className={`inline-block px-2.5 py-1 text-xs font-bold rounded-lg border ${getTypeBadgeStyle(item.type)}`}>
-                                    {item.type}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                  <span className={`inline-block px-2.5 py-1 text-xs font-bold rounded-lg border ${getSourceBadgeStyle(item.source)}`}>
-                                    {item.source}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-center">
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                    {item.status}
-                                  </span>
+                                  
+                                  {/* Fast copy helper button for each individual URL */}
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(item.url);
+                                      showToast("URL disalin ke clipboard", "success");
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-[#fe4c6f] transition-all cursor-pointer shrink-0"
+                                    title="Salin URL"
+                                  >
+                                    <Copy className="w-4 h-4" />
+                                  </button>
                                 </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={5} className="px-6 py-12 text-center text-sm font-semibold text-gray-400">
-                                Tidak ada URL yang cocok dengan pencarian atau filter Anda.
+                              <td colSpan={2} className="px-6 py-12 text-center text-sm font-semibold text-gray-400">
+                                Tidak ada URL yang cocok dengan pencarian Anda.
                               </td>
                             </tr>
                           )}
