@@ -22,7 +22,8 @@ import {
   FileCode,
   ShieldAlert,
   ArrowRight,
-  RotateCcw
+  RotateCcw,
+  FileSpreadsheet
 } from "lucide-react";
 import { DiscoveredURL, ScanStats, ScanSummary, ActivePage } from "./types";
 import { faqData, aboutData, contactData } from "./data";
@@ -783,7 +784,7 @@ export default function App() {
                   Website URL Extractor <span className="text-[#fe4c6f]">Indonesia</span>
                 </h2>
                 <p className="text-base sm:text-lg text-gray-500 max-w-2xl mx-auto leading-relaxed">
-                  Ambil seluruh URL website secara otomatis hanya dengan memasukkan alamat website. Mendukung WordPress, Blogger, Shopify, Joomla, Wix, Ghost, Webflow, Drupal, dan berbagai CMS lainnya.
+                  Ekstrak seluruh URL website secara otomatis dan akurat cukup dengan memasukkan alamat domain. Solusi profesional untuk pemetaan link dan analisis sitemap Anda.
                 </p>
               </section>
 
@@ -1040,73 +1041,89 @@ export default function App() {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     
                     {/* Simplified Prominent Total Stats & Metadata */}
-                    <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-lg lg:col-span-2 flex flex-col justify-between space-y-6">
-                      <div className="flex justify-between items-center border-b border-gray-50 pb-4">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                          <h3 className="text-base font-extrabold text-gray-900">
-                            Ringkasan Hasil Pemindaian
-                          </h3>
+                    <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-lg lg:col-span-2 flex flex-col justify-between h-full">
+                      <div>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-4 gap-3">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                            <h3 className="text-base font-extrabold text-gray-900">
+                              Ringkasan Hasil Pemindaian
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                            <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
+                              Aktif
+                            </span>
+                            <button 
+                              onClick={handleRetry}
+                              className="bg-[#fe4c6f]/10 text-[#fe4c6f] hover:bg-[#fe4c6f]/20 px-4 py-2 rounded-xl font-bold text-xs transition-all duration-200 flex items-center gap-1.5 cursor-pointer"
+                              title="Pindai ulang website"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" /> Re-scan Website
+                            </button>
+                          </div>
                         </div>
-                        <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg">
-                          Aktif
+
+                        <div className="py-4 flex flex-col justify-center items-start space-y-2">
+                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Jumlah Link Berhasil Di-Scrape</span>
+                          <div className="flex items-baseline gap-2.5">
+                            <span className="text-6xl font-black text-[#fe4c6f] font-mono tracking-tight leading-none">
+                              {discoveredList.length}
+                            </span>
+                            <span className="text-xl font-bold text-gray-500 font-sans">
+                              URL Terdeteksi
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-gray-100 pt-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs text-gray-400">
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full"></span>
+                          Tanggal Scan: <strong className="text-gray-600 font-medium">{summary?.scanDate}</strong>
                         </span>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 py-2">
-                        <div className="space-y-1">
-                          <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">Jumlah Link Berhasil Di-Scrape</span>
-                          <span className="text-5xl sm:text-6xl font-black text-[#fe4c6f] font-mono tracking-tight leading-none">
-                            {discoveredList.length} <span className="text-xl font-bold text-gray-500 font-sans ml-1">URL</span>
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-2 sm:flex-col sm:items-end justify-start">
-                          <button 
-                            onClick={handleRetry}
-                            className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-5 py-2.5 rounded-xl font-semibold text-xs transition-all duration-200 shadow-md shadow-[#fe4c6f]/10 flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" /> Re-scan Website
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Removed Website Target, Platform CMS, Durasi Scan, and Sitemaps as requested */}
-
-                      <div className="border-t border-gray-50 pt-3 flex justify-between items-center text-[11px] text-gray-400">
-                        <span>Tanggal Scan: {summary?.scanDate}</span>
-                        <span>Robots.txt: {summary?.robotsTxtExists ? "Ditemukan" : "Tidak Ada"}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full"></span>
+                          Robots.txt: <strong className={`${summary?.robotsTxtExists ? "text-emerald-600" : "text-amber-600"} font-medium`}>{summary?.robotsTxtExists ? "Ditemukan" : "Tidak Ada"}</strong>
+                        </span>
                       </div>
                     </div>
 
                     {/* Quick Downloads and Actions */}
-                    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg space-y-4 flex flex-col justify-between">
+                    <div className="bg-white p-6 sm:p-8 rounded-3xl border border-gray-100 shadow-lg flex flex-col justify-between h-full">
                       <div>
-                        <h3 className="text-base font-extrabold text-gray-900 border-b border-gray-50 pb-3">
-                          Format Unduhan
-                        </h3>
-                        <p className="text-xs text-gray-400 mt-2">
+                        <div className="border-b border-gray-100 pb-4">
+                          <h3 className="text-base font-extrabold text-gray-900">
+                            Format Unduhan
+                          </h3>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-3 leading-relaxed">
                           Unduh seluruh hasil URL yang berhasil di-scrape ke dalam format file yang Anda butuhkan.
                         </p>
+                        
+                        <div className="grid grid-cols-2 gap-3 mt-6">
+                          {[
+                            { key: "excel", label: "Excel", icon: FileSpreadsheet, bgIcon: "bg-emerald-50 text-emerald-600 border border-emerald-100/50", hoverColor: "hover:bg-emerald-50/20 hover:border-emerald-200" },
+                            { key: "txt", label: "TXT Plain", icon: FileText, bgIcon: "bg-gray-50 text-gray-600 border border-gray-100", hoverColor: "hover:bg-gray-50/50 hover:border-gray-300" }
+                          ].map((fmt) => (
+                            <button
+                              key={fmt.key}
+                              onClick={() => handleDownload(fmt.key as any)}
+                              className={`flex items-center gap-2.5 p-3.5 border border-gray-100 rounded-2xl transition-all duration-200 text-left group cursor-pointer ${fmt.hoverColor}`}
+                            >
+                              <div className={`p-2 rounded-xl transition-colors ${fmt.bgIcon}`}>
+                                <fmt.icon className="w-4.5 h-4.5" />
+                              </div>
+                              <span className="text-xs sm:text-sm font-bold text-gray-800 leading-tight block group-hover:text-[#fe4c6f] transition-colors">
+                                {fmt.label}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-2 pt-2">
-                        {[
-                          { key: "excel", label: "Excel (.xlsx)", icon: FileText, color: "hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200" },
-                          { key: "csv", label: "CSV", icon: FileText, color: "hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200" },
-                          { key: "txt", label: "TXT Plain", icon: FileText, color: "hover:bg-gray-50 hover:text-gray-700 hover:border-gray-200" },
-                          { key: "json", label: "JSON", icon: FileCode, color: "hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200" },
-                          { key: "markdown", label: "Markdown", icon: FileText, color: "hover:bg-orange-50 hover:text-orange-700 hover:border-orange-200" },
-                          { key: "xml", label: "Sitemap XML", icon: FileCode, color: "hover:bg-teal-50 hover:text-teal-700 hover:border-teal-200" }
-                        ].map((fmt) => (
-                          <button
-                            key={fmt.key}
-                            onClick={() => handleDownload(fmt.key as any)}
-                            className={`flex flex-col items-center justify-center p-3 border border-gray-100 rounded-xl transition-all duration-150 text-center gap-1.5 group cursor-pointer ${fmt.color}`}
-                          >
-                            <fmt.icon className="w-5 h-5 text-gray-400 group-hover:scale-110 transition-transform" />
-                            <span className="text-xs font-semibold text-gray-600 block leading-none">{fmt.label}</span>
-                          </button>
-                        ))}
+                      <div className="text-[11px] text-gray-400 border-t border-gray-50 pt-3 text-center sm:text-left">
+                        Hanya berisi daftar link URL saja.
                       </div>
                     </div>
 

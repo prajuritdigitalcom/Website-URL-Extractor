@@ -24,7 +24,7 @@ export const faqData: FAQItem[] = [
   },
   {
     q: "Format ekspor apa saja yang didukung?",
-    a: "Anda dapat mengunduh hasil scan dalam 6 format sekaligus: TXT, CSV, Excel (.xlsx), JSON, Markdown (.md), dan XML. Anda juga dapat menyalin jenis URL tertentu (seperti hanya artikel atau hanya halaman) langsung ke papan klip Anda."
+    a: "Anda dapat mengunduh seluruh daftar URL hasil scan dalam format file Excel (.xlsx) dan TXT Plain sesuai dengan kebutuhan Anda."
   },
   {
     q: "Apakah ada batasan (limit) dalam memindai URL?",
