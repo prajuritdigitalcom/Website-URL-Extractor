@@ -21,7 +21,8 @@ import {
   MapPin,
   FileCode,
   ShieldAlert,
-  ArrowRight
+  ArrowRight,
+  RotateCcw
 } from "lucide-react";
 import { DiscoveredURL, ScanStats, ScanSummary, ActivePage } from "./types";
 import { faqData, aboutData, contactData } from "./data";
@@ -215,6 +216,27 @@ export default function App() {
     setScanStatus("");
     setStatusLogs(prev => [...prev, "Pemindaian dibatalkan oleh pengguna."]);
     showToast("Pemindaian berhasil dibatalkan", "info");
+  };
+
+  // Reset all states and clear data
+  const handleReset = () => {
+    setUrlInput("");
+    setPastedSitemapText("");
+    setIsScanning(false);
+    setScanStatus("");
+    setProgress(0);
+    setDiscoveredList([]);
+    setStats(null);
+    setSummary(null);
+    setErrorMsg(null);
+    setStatusLogs([]);
+    setSearchQuery("");
+    setCurrentPage(1);
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    showToast("Semua data berhasil di-reset", "info");
   };
 
   // Retry previous URL
@@ -864,14 +886,27 @@ export default function App() {
                       </div>
                       
                       {!isScanning ? (
-                        <button
-                          onClick={() => handleStartScan()}
-                          className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
-                          id="btn-scan"
-                        >
-                          <RefreshCw className="w-5 h-5 animate-spin-slow" />
-                          Scan Website
-                        </button>
+                        <div className="flex gap-2.5 shrink-0">
+                          <button
+                            onClick={() => handleStartScan()}
+                            className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                            id="btn-scan"
+                          >
+                            <RefreshCw className="w-5 h-5 animate-spin-slow" />
+                            Scan Website
+                          </button>
+                          {(urlInput || discoveredList.length > 0) && (
+                            <button
+                              onClick={handleReset}
+                              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-gray-200"
+                              id="btn-reset-auto"
+                              title="Reset data dan input"
+                            >
+                              <RotateCcw className="w-5 h-5 text-gray-500" />
+                              Reset
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <button
                           onClick={handleCancelScan}
@@ -904,19 +939,32 @@ export default function App() {
                       />
                     </div>
 
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <span className="text-xs text-gray-400 leading-relaxed block max-w-md">
                         Mendukung pembersihan junk otomatis, klasifikasi tipe URL, dan deteksi domain otomatis dari teks yang di-paste.
                       </span>
                       {!isScanning ? (
-                        <button
-                          onClick={handleManualExtract}
-                          className="bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer shrink-0"
-                          id="btn-extract-sitemap"
-                        >
-                          <FileCode className="w-5 h-5" />
-                          Urutkan & Ekstrak URL
-                        </button>
+                        <div className="flex gap-2.5 shrink-0 w-full sm:w-auto">
+                          <button
+                            onClick={handleManualExtract}
+                            className="flex-grow sm:flex-none bg-[#fe4c6f] hover:bg-[#e33b5c] text-white px-8 py-4 rounded-2xl font-semibold text-base transition-all duration-200 shadow-lg shadow-[#fe4c6f]/20 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                            id="btn-extract-sitemap"
+                          >
+                            <FileCode className="w-5 h-5" />
+                            Urutkan & Ekstrak URL
+                          </button>
+                          {(pastedSitemapText || discoveredList.length > 0) && (
+                            <button
+                              onClick={handleReset}
+                              className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-2xl font-semibold text-base transition-all duration-200 flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-gray-200"
+                              id="btn-reset-manual"
+                              title="Reset data dan input manual"
+                            >
+                              <RotateCcw className="w-5 h-5 text-gray-500" />
+                              Reset
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <button
                           onClick={handleCancelScan}
