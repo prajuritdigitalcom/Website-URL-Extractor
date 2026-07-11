@@ -1,0 +1,6 @@
+{
+  "name": "Website URL Extractor Indonesia",
+  "description": "Ambil seluruh URL website secara otomatis hanya dengan memasukkan alamat website. Mendukung WordPress, Blogger, Shopify, Joomla, Wix, Ghost, Webflow, Drupal, dan berbagai CMS lainnya. Download hasil dalam format TXT, CSV, Excel, JSON, Markdown, dan XML.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
